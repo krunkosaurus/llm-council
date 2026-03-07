@@ -42,30 +42,30 @@ Create `.env` in the project root:
 APP_BASE_URL=http://localhost:8001
 FRONTEND_BASE_URL=http://localhost:5173
 
-# Optional: override model list/chairman
-COUNCIL_MODELS=openai/gpt-5.1,anthropic/claude-sonnet-4.5
-CHAIRMAN_MODEL=openai/gpt-5.1
+# Optional: override provider defaults shown in the dropdowns
+OPENAI_DEFAULT_MODEL=openai/gpt-5.4
+ANTHROPIC_DEFAULT_MODEL=anthropic/claude-sonnet-4-6
 
-# OpenAI (ChatGPT) OAuth
-OPENAI_OAUTH_CLIENT_ID=
-OPENAI_OAUTH_CLIENT_SECRET=
-OPENAI_OAUTH_AUTHORIZE_URL=
-OPENAI_OAUTH_TOKEN_URL=
-OPENAI_OAUTH_SCOPE=openid profile email offline_access
-
-# Anthropic (Claude) OAuth
-ANTHROPIC_OAUTH_CLIENT_ID=
-ANTHROPIC_OAUTH_CLIENT_SECRET=
-ANTHROPIC_OAUTH_AUTHORIZE_URL=
-ANTHROPIC_OAUTH_TOKEN_URL=
-ANTHROPIC_OAUTH_SCOPE=openid profile email offline_access
+# Optional advanced overrides (defaults already match opencode behavior)
+# OPENAI_OAUTH_ISSUER=https://auth.openai.com
+# OPENAI_OAUTH_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
+# OPENAI_CODEX_API_URL=https://chatgpt.com/backend-api/codex/responses
+# ANTHROPIC_OAUTH_CLIENT_ID=9d1c250a-e61b-44d9-88ed-5944d1962f5e
+# ANTHROPIC_OAUTH_AUTHORIZE_URL_MAX=https://claude.ai/oauth/authorize
+# ANTHROPIC_OAUTH_TOKEN_URL=https://console.anthropic.com/v1/oauth/token
+# ANTHROPIC_OAUTH_REDIRECT_URI=https://console.anthropic.com/oauth/code/callback
 ```
 
-Set OAuth app callbacks to:
-- `http://localhost:8001/api/auth/openai/callback`
-- `http://localhost:8001/api/auth/anthropic/callback`
+After starting the app, use sidebar **Provider OAuth**:
+- ChatGPT: browser callback flow (automatic)
+- Claude: code-paste flow (same style opencode uses)
+- Each connected provider exposes a model dropdown in the sidebar.
+- The selected model is persisted per provider and reused on restart.
 
-After starting the app, use sidebar **Provider OAuth** to connect providers.
+Notes:
+- ChatGPT OAuth uses a local callback listener on `http://localhost:1455/auth/callback`.
+- If connect fails immediately, make sure port `1455` is free.
+- If no saved selection exists, the app falls back to `OPENAI_DEFAULT_MODEL` and `ANTHROPIC_DEFAULT_MODEL`.
 
 ## Run
 
@@ -93,10 +93,14 @@ Open http://localhost:5173.
 ## Behavior Rules
 
 - Only `openai/*` and `anthropic/*` models are supported.
+- Stage 1 and Stage 2 run against the currently selected model for each connected provider.
+- The chairman model is the first connected provider in the built-in order: OpenAI, then Anthropic.
 - If a provider is not connected, its models return no response.
 - If both providers fail or are disconnected, the request returns an all-models-failed error.
+- OAuth tokens are refreshed automatically when providers return refresh tokens.
 
 ## Storage
 
 - Conversations: `data/conversations/*.json`
 - OAuth tokens: `data/oauth_tokens.json`
+- Provider model selections: `data/provider_settings.json`

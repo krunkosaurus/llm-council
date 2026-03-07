@@ -14,8 +14,10 @@ const {
   listProviderStatuses,
   buildAuthorizationUrl,
   handleOAuthCallback,
+  completeOAuthCode,
   disconnectProvider,
 } = require('./oauth');
+const { setSelectedProviderModel } = require('./providerSettings');
 
 const app = express();
 
@@ -68,9 +70,9 @@ app.get('/api/auth/providers', (req, res) => {
 });
 
 // Start OAuth flow
-app.get('/api/auth/:provider/start', (req, res) => {
+app.get('/api/auth/:provider/start', async (req, res) => {
   try {
-    const result = buildAuthorizationUrl(req.params.provider);
+    const result = await buildAuthorizationUrl(req.params.provider);
     res.json(result);
   } catch (e) {
     res.status(e.status || 400).json({ detail: e.message });
@@ -87,11 +89,45 @@ app.get('/api/auth/:provider/callback', async (req, res) => {
   }
 });
 
+// Complete code-based OAuth flow (used by Claude flow)
+app.post('/api/auth/:provider/complete', async (req, res) => {
+  try {
+    const result = await completeOAuthCode(req.params.provider, req.body);
+    if (!result.ok) {
+      return res.status(400).json({ detail: result.message });
+    }
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
 // Disconnect OAuth provider
 app.post('/api/auth/:provider/disconnect', (req, res) => {
   try {
     disconnectProvider(req.params.provider);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
+// Update selected model for provider
+app.post('/api/auth/:provider/model', (req, res) => {
+  try {
+    const providerId = req.params.provider;
+    const modelId = req.body && req.body.model;
+
+    if (!modelId) {
+      return res.status(400).json({ detail: 'Missing model' });
+    }
+
+    setSelectedProviderModel(providerId, modelId);
+    const providers = listProviderStatuses();
+    res.json({
+      ok: true,
+      provider: providers[providerId],
+    });
   } catch (e) {
     res.status(e.status || 400).json({ detail: e.message });
   }

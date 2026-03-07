@@ -1,12 +1,39 @@
 const { queryModel, queryModelsParallel } = require('./modelClients');
-const { COUNCIL_MODELS, CHAIRMAN_MODEL } = require('./config');
+const { COUNCIL_PROVIDER_ORDER } = require('./config');
+const { listProviderStatuses } = require('./oauth');
+
+function getConnectedCouncilModels() {
+  const providers = listProviderStatuses();
+
+  return COUNCIL_PROVIDER_ORDER.map((providerId) => {
+    const provider = providers[providerId];
+    if (!provider || !provider.connected || !provider.selected_model) {
+      return null;
+    }
+    return provider.selected_model;
+  }).filter(Boolean);
+}
+
+function pickChairmanModel(models) {
+  if (Array.isArray(models) && models.length > 0) {
+    return models[0];
+  }
+
+  const connectedModels = getConnectedCouncilModels();
+  return connectedModels[0] || null;
+}
 
 /**
- * Stage 1: Collect individual responses from all council models.
+ * Stage 1: Collect individual responses from all connected council models.
  */
 async function stage1CollectResponses(userQuery) {
+  const councilModels = getConnectedCouncilModels();
+  if (councilModels.length === 0) {
+    return [];
+  }
+
   const messages = [{ role: 'user', content: userQuery }];
-  const responses = await queryModelsParallel(COUNCIL_MODELS, messages);
+  const responses = await queryModelsParallel(councilModels, messages);
 
   const stage1Results = [];
   for (const [model, response] of Object.entries(responses)) {
@@ -22,16 +49,21 @@ async function stage1CollectResponses(userQuery) {
 }
 
 /**
- * Stage 2: Each model ranks the anonymized responses.
+ * Stage 2: Each successful stage 1 model ranks the anonymized responses.
  * Returns [stage2Results, labelToModel].
  */
 async function stage2CollectRankings(userQuery, stage1Results) {
   const labels = stage1Results.map((_, i) => String.fromCharCode(65 + i));
+  const rankingModels = stage1Results.map((result) => result.model);
 
   const labelToModel = {};
   labels.forEach((label, i) => {
     labelToModel[`Response ${label}`] = stage1Results[i].model;
   });
+
+  if (rankingModels.length === 0) {
+    return [[], labelToModel];
+  }
 
   const responsesText = labels
     .map((label, i) => `Response ${label}:\n${stage1Results[i].response}`)
@@ -69,7 +101,7 @@ FINAL RANKING:
 Now provide your evaluation and ranking:`;
 
   const messages = [{ role: 'user', content: rankingPrompt }];
-  const responses = await queryModelsParallel(COUNCIL_MODELS, messages);
+  const responses = await queryModelsParallel(rankingModels, messages);
 
   const stage2Results = [];
   for (const [model, response] of Object.entries(responses)) {
@@ -91,6 +123,15 @@ Now provide your evaluation and ranking:`;
  * Stage 3: Chairman synthesizes final response.
  */
 async function stage3SynthesizeFinal(userQuery, stage1Results, stage2Results) {
+  const chairmanModel = pickChairmanModel(stage1Results.map((result) => result.model));
+
+  if (!chairmanModel) {
+    return {
+      model: 'error',
+      response: 'No connected models are available for final synthesis.',
+    };
+  }
+
   const stage1Text = stage1Results
     .map((r) => `Model: ${r.model}\nResponse: ${r.response}`)
     .join('\n\n');
@@ -117,17 +158,17 @@ Your task as Chairman is to synthesize all of this information into a single, co
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:`;
 
   const messages = [{ role: 'user', content: chairmanPrompt }];
-  const response = await queryModel(CHAIRMAN_MODEL, messages);
+  const response = await queryModel(chairmanModel, messages);
 
   if (response === null) {
     return {
-      model: CHAIRMAN_MODEL,
+      model: chairmanModel,
       response: 'Error: Unable to generate final synthesis.',
     };
   }
 
   return {
-    model: CHAIRMAN_MODEL,
+    model: chairmanModel,
     response: response.content || '',
   };
 }
@@ -203,7 +244,11 @@ Question: ${userQuery}
 Title:`;
 
   const messages = [{ role: 'user', content: titlePrompt }];
-  const titleModels = ['openai/gpt-5.1', 'anthropic/claude-sonnet-4.5'];
+  const titleModels = getConnectedCouncilModels();
+
+  if (titleModels.length === 0) {
+    return 'New Conversation';
+  }
 
   let response = null;
   for (const model of titleModels) {
@@ -238,7 +283,7 @@ async function runFullCouncil(userQuery) {
     return [
       [],
       [],
-      { model: 'error', response: 'All models failed to respond. Please try again.' },
+      { model: 'error', response: 'All connected models failed to respond. Please try again.' },
       {},
     ];
   }
@@ -259,7 +304,6 @@ module.exports = {
   stage1CollectResponses,
   stage2CollectRankings,
   stage3SynthesizeFinal,
-  parseRankingFromText,
   calculateAggregateRankings,
   generateConversationTitle,
   runFullCouncil,

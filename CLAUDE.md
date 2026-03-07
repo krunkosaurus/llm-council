@@ -16,9 +16,9 @@ This codebase is **OAuth-only** for model calls:
 
 ### `backend/config.js`
 - Loads `.env`.
-- `COUNCIL_MODELS` defaults to `openai/gpt-5.1,anthropic/claude-sonnet-4.5`.
-- `CHAIRMAN_MODEL` defaults to `openai/gpt-5.1`.
-- OAuth provider config lives in `OAUTH_PROVIDERS`.
+- `OPENAI_DEFAULT_MODEL` defaults to `openai/gpt-5.4`.
+- `ANTHROPIC_DEFAULT_MODEL` defaults to `anthropic/claude-sonnet-4-6`.
+- OAuth defaults are hardcoded to match opencode-style flows (with optional env overrides).
 
 ### `backend/oauth.js`
 - Implements OAuth state/PKCE flow.
@@ -26,6 +26,7 @@ This codebase is **OAuth-only** for model calls:
   - provider status
   - auth URL generation
   - callback token exchange
+  - code-completion exchange (Claude flow)
   - refresh-token handling
   - disconnect
 
@@ -50,16 +51,17 @@ This codebase is **OAuth-only** for model calls:
   - `GET /api/auth/providers`
   - `GET /api/auth/:provider/start`
   - `GET /api/auth/:provider/callback`
+  - `POST /api/auth/:provider/complete`
   - `POST /api/auth/:provider/disconnect`
 
 ## Frontend Notes
 
 ### `frontend/src/App.jsx` + `components/Sidebar.jsx`
 - Sidebar includes provider OAuth connect/disconnect controls.
-- Polls provider status after popup flow.
+- Uses popup callback flow for ChatGPT and manual code-paste completion for Claude.
 
 ### `frontend/src/api.js`
-- Includes OAuth API client functions for provider status/start/disconnect.
+- Includes OAuth API client functions for provider status/start/complete/disconnect.
 
 ## Operational Constraints
 

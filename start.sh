@@ -1,23 +1,24 @@
 #!/bin/bash
 
 # LLM Council - Start script
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Starting LLM Council..."
 echo ""
 
 # Start backend
 echo "Starting backend on http://localhost:8001..."
-cd backend && node server.js &
+(cd "$ROOT_DIR/backend" && node server.js) &
 BACKEND_PID=$!
-cd ..
 
 # Wait a bit for backend to start
 sleep 2
 
 # Start frontend
 echo "Starting frontend on http://localhost:5173..."
-cd frontend
-npm run dev &
+(cd "$ROOT_DIR/frontend" && npm run dev) &
 FRONTEND_PID=$!
 
 echo ""

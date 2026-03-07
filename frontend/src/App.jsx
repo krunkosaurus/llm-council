@@ -11,11 +11,27 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [authProviders, setAuthProviders] = useState({});
   const [oauthBusyProvider, setOauthBusyProvider] = useState(null);
+  const [providerModelBusy, setProviderModelBusy] = useState(null);
+  const [pendingCodeOAuth, setPendingCodeOAuth] = useState(null);
+  const [pendingOAuthCode, setPendingOAuthCode] = useState('');
+  const [oauthError, setOauthError] = useState(null);
 
   // Load conversations and auth status on mount
   useEffect(() => {
-    loadConversations();
-    loadAuthProviders();
+    const loadInitialData = async () => {
+      try {
+        const [convs, providers] = await Promise.all([
+          api.listConversations(),
+          api.getAuthProviders(),
+        ]);
+        setConversations(convs);
+        setAuthProviders(providers);
+      } catch (error) {
+        console.error('Failed to load initial app data:', error);
+      }
+    };
+
+    loadInitialData();
   }, []);
 
   // Load conversation details when selected
@@ -47,6 +63,11 @@ function App() {
     try {
       const providers = await api.getAuthProviders();
       setAuthProviders(providers);
+      if (pendingCodeOAuth && providers[pendingCodeOAuth.providerId]?.connected) {
+        setPendingCodeOAuth(null);
+        setPendingOAuthCode('');
+        setOauthError(null);
+      }
       return providers;
     } catch (error) {
       console.error('Failed to load auth providers:', error);
@@ -73,9 +94,28 @@ function App() {
 
   const handleConnectProvider = async (providerId) => {
     setOauthBusyProvider(providerId);
+    setOauthError(null);
 
     try {
-      const { auth_url: authUrl } = await api.startOAuth(providerId);
+      const start = await api.startOAuth(providerId);
+      const authUrl = start.auth_url;
+
+      if (start.method === 'code') {
+        const popup = window.open(authUrl, `oauth-${providerId}`, 'width=680,height=840');
+        setPendingCodeOAuth({
+          providerId,
+          flowId: start.flow_id,
+          authUrl,
+          instructions: start.instructions,
+        });
+        setPendingOAuthCode('');
+        if (popup) {
+          popup.focus();
+        }
+        setOauthBusyProvider(null);
+        return;
+      }
+
       const popup = window.open(authUrl, `oauth-${providerId}`, 'width=520,height=720');
 
       // Fallback if browser blocks popups
@@ -85,18 +125,22 @@ function App() {
       }
 
       const poll = window.setInterval(async () => {
-        if (popup.closed) {
-          window.clearInterval(poll);
-          await loadAuthProviders();
-          setOauthBusyProvider(null);
-          return;
-        }
+        try {
+          if (popup.closed) {
+            window.clearInterval(poll);
+            await loadAuthProviders();
+            setOauthBusyProvider(null);
+            return;
+          }
 
-        const latest = await loadAuthProviders();
-        if (latest && latest[providerId] && latest[providerId].connected) {
-          window.clearInterval(poll);
-          popup.close();
-          setOauthBusyProvider(null);
+          const latest = await loadAuthProviders();
+          if (latest && latest[providerId] && latest[providerId].connected) {
+            window.clearInterval(poll);
+            popup.close();
+            setOauthBusyProvider(null);
+          }
+        } catch (e) {
+          console.error(`Failed polling OAuth status for ${providerId}:`, e);
         }
       }, 1200);
     } catch (error) {
@@ -105,16 +149,71 @@ function App() {
     }
   };
 
+  const handlePendingOAuthCodeSubmit = async () => {
+    if (!pendingCodeOAuth || !pendingOAuthCode.trim()) {
+      return;
+    }
+
+    setOauthBusyProvider(pendingCodeOAuth.providerId);
+    setOauthError(null);
+
+    try {
+      await api.completeOAuth(pendingCodeOAuth.providerId, {
+        flow_id: pendingCodeOAuth.flowId,
+        code: pendingOAuthCode.trim(),
+      });
+      setPendingCodeOAuth(null);
+      setPendingOAuthCode('');
+      await loadAuthProviders();
+    } catch (error) {
+      console.error(`Failed to complete ${pendingCodeOAuth.providerId} OAuth:`, error);
+      setOauthError(error.message);
+    } finally {
+      setOauthBusyProvider(null);
+    }
+  };
+
+  const handlePendingOAuthCancel = () => {
+    setPendingCodeOAuth(null);
+    setPendingOAuthCode('');
+    setOauthError(null);
+  };
+
   const handleDisconnectProvider = async (providerId) => {
     setOauthBusyProvider(providerId);
 
     try {
       await api.disconnectOAuth(providerId);
+      if (pendingCodeOAuth && pendingCodeOAuth.providerId === providerId) {
+        setPendingCodeOAuth(null);
+        setPendingOAuthCode('');
+        setOauthError(null);
+      }
       await loadAuthProviders();
     } catch (error) {
       console.error(`Failed to disconnect ${providerId}:`, error);
     } finally {
       setOauthBusyProvider(null);
+    }
+  };
+
+  const handleProviderModelChange = async (providerId, modelId) => {
+    setProviderModelBusy(providerId);
+
+    try {
+      const result = await api.setProviderModel(providerId, modelId);
+      if (result && result.provider) {
+        setAuthProviders((prev) => ({
+          ...prev,
+          [providerId]: result.provider,
+        }));
+      } else {
+        await loadAuthProviders();
+      }
+    } catch (error) {
+      console.error(`Failed to update model for ${providerId}:`, error);
+    } finally {
+      setProviderModelBusy(null);
     }
   };
 
@@ -251,8 +350,16 @@ function App() {
         onNewConversation={handleNewConversation}
         authProviders={authProviders}
         oauthBusyProvider={oauthBusyProvider}
+        providerModelBusy={providerModelBusy}
         onConnectProvider={handleConnectProvider}
         onDisconnectProvider={handleDisconnectProvider}
+        onProviderModelChange={handleProviderModelChange}
+        pendingCodeOAuth={pendingCodeOAuth}
+        pendingOAuthCode={pendingOAuthCode}
+        oauthError={oauthError}
+        onPendingOAuthCodeChange={setPendingOAuthCode}
+        onPendingOAuthCodeSubmit={handlePendingOAuthCodeSubmit}
+        onPendingOAuthCancel={handlePendingOAuthCancel}
       />
       <ChatInterface
         conversation={currentConversation}

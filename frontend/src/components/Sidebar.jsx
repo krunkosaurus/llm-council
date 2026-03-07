@@ -7,8 +7,16 @@ export default function Sidebar({
   onNewConversation,
   authProviders,
   oauthBusyProvider,
+  providerModelBusy,
   onConnectProvider,
   onDisconnectProvider,
+  onProviderModelChange,
+  pendingCodeOAuth,
+  pendingOAuthCode,
+  oauthError,
+  onPendingOAuthCodeChange,
+  onPendingOAuthCodeSubmit,
+  onPendingOAuthCancel,
 }) {
   const providerList = Object.values(authProviders || {});
 
@@ -28,41 +36,110 @@ export default function Sidebar({
         ) : (
           providerList.map((provider) => {
             const busy = oauthBusyProvider === provider.id;
+            const modelBusy = providerModelBusy === provider.id;
             const connected = provider.connected;
+            const isPendingCodeFlow = pendingCodeOAuth?.providerId === provider.id;
 
             return (
-              <div key={provider.id} className="oauth-provider-row">
-                <div>
-                  <div className="oauth-provider-name">{provider.name}</div>
-                  <div
-                    className={`oauth-provider-status ${
-                      provider.configured ? 'configured' : 'not-configured'
-                    }`}
-                  >
-                    {!provider.configured
-                      ? 'Not configured'
-                      : connected
-                        ? 'Connected'
-                        : 'Not connected'}
+              <div key={provider.id} className="oauth-provider-card">
+                <div className="oauth-provider-row">
+                  <div>
+                    <div className="oauth-provider-name">{provider.name}</div>
+                    <div
+                      className={`oauth-provider-status ${
+                        provider.configured ? 'configured' : 'not-configured'
+                      }`}
+                    >
+                      {!provider.configured
+                        ? 'Not configured'
+                        : connected
+                          ? 'Connected'
+                          : isPendingCodeFlow
+                            ? 'Waiting for code'
+                            : 'Not connected'}
+                    </div>
                   </div>
+                  {connected ? (
+                    <button
+                      className="oauth-btn oauth-btn-disconnect"
+                      onClick={() => onDisconnectProvider(provider.id)}
+                      disabled={busy}
+                    >
+                      {busy ? '...' : 'Disconnect'}
+                    </button>
+                  ) : (
+                    <button
+                      className="oauth-btn oauth-btn-connect"
+                      onClick={() => onConnectProvider(provider.id)}
+                      disabled={!provider.configured || busy}
+                    >
+                      {busy ? '...' : isPendingCodeFlow ? 'Reconnect' : 'Connect'}
+                    </button>
+                  )}
                 </div>
-                {connected ? (
-                  <button
-                    className="oauth-btn oauth-btn-disconnect"
-                    onClick={() => onDisconnectProvider(provider.id)}
-                    disabled={busy}
+                {Array.isArray(provider.available_models) && provider.available_models.length > 0 ? (
+                  <label className="oauth-model-picker">
+                    <span className="oauth-model-label">Model</span>
+                    <select
+                      className="oauth-model-select"
+                      value={provider.selected_model || ''}
+                      onChange={(event) => onProviderModelChange(provider.id, event.target.value)}
+                      disabled={busy || modelBusy}
+                    >
+                      {provider.available_models.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {isPendingCodeFlow ? (
+                  <form
+                    className="oauth-code-panel"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      onPendingOAuthCodeSubmit();
+                    }}
                   >
-                    {busy ? '...' : 'Disconnect'}
-                  </button>
-                ) : (
-                  <button
-                    className="oauth-btn oauth-btn-connect"
-                    onClick={() => onConnectProvider(provider.id)}
-                    disabled={!provider.configured || busy}
-                  >
-                    {busy ? '...' : 'Connect'}
-                  </button>
-                )}
+                    <div className="oauth-code-help">
+                      {pendingCodeOAuth.instructions || 'Paste the returned authorization code here.'}
+                    </div>
+                    <a
+                      className="oauth-code-link"
+                      href={pendingCodeOAuth.authUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open auth page
+                    </a>
+                    <textarea
+                      className="oauth-code-input"
+                      rows="3"
+                      value={pendingOAuthCode}
+                      onChange={(event) => onPendingOAuthCodeChange(event.target.value)}
+                      placeholder="Paste the Claude code or callback URL"
+                    />
+                    {oauthError ? <div className="oauth-code-error">{oauthError}</div> : null}
+                    <div className="oauth-code-actions">
+                      <button
+                        type="submit"
+                        className="oauth-btn oauth-btn-connect"
+                        disabled={busy || !pendingOAuthCode.trim()}
+                      >
+                        {busy ? '...' : 'Submit Code'}
+                      </button>
+                      <button
+                        type="button"
+                        className="oauth-btn oauth-btn-cancel"
+                        onClick={onPendingOAuthCancel}
+                        disabled={busy}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
               </div>
             );
           })

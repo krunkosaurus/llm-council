@@ -129,6 +129,24 @@ export const api = {
   },
 
   /**
+   * Complete a code-based OAuth flow.
+   */
+  async completeOAuth(provider, payload) {
+    const response = await fetch(`${API_BASE}/api/auth/${provider}/complete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || `Failed to complete OAuth for ${provider}`);
+    }
+    return response.json();
+  },
+
+  /**
    * Disconnect OAuth token for provider.
    */
   async disconnectOAuth(provider) {
@@ -143,6 +161,26 @@ export const api = {
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       throw new Error((data && data.detail) || `Failed to disconnect ${provider}`);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Update selected model for a provider.
+   */
+  async setProviderModel(provider, model) {
+    const response = await fetch(`${API_BASE}/api/auth/${provider}/model`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || `Failed to set model for ${provider}`);
     }
 
     return response.json();
