@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -6,7 +5,13 @@ export default function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  authProviders,
+  oauthBusyProvider,
+  onConnectProvider,
+  onDisconnectProvider,
 }) {
+  const providerList = Object.values(authProviders || {});
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -14,6 +19,54 @@ export default function Sidebar({
         <button className="new-conversation-btn" onClick={onNewConversation}>
           + New Conversation
         </button>
+      </div>
+
+      <div className="auth-section">
+        <h2>Provider OAuth</h2>
+        {providerList.length === 0 ? (
+          <div className="oauth-empty">Loading providers...</div>
+        ) : (
+          providerList.map((provider) => {
+            const busy = oauthBusyProvider === provider.id;
+            const connected = provider.connected;
+
+            return (
+              <div key={provider.id} className="oauth-provider-row">
+                <div>
+                  <div className="oauth-provider-name">{provider.name}</div>
+                  <div
+                    className={`oauth-provider-status ${
+                      provider.configured ? 'configured' : 'not-configured'
+                    }`}
+                  >
+                    {!provider.configured
+                      ? 'Not configured'
+                      : connected
+                        ? 'Connected'
+                        : 'Not connected'}
+                  </div>
+                </div>
+                {connected ? (
+                  <button
+                    className="oauth-btn oauth-btn-disconnect"
+                    onClick={() => onDisconnectProvider(provider.id)}
+                    disabled={busy}
+                  >
+                    {busy ? '...' : 'Disconnect'}
+                  </button>
+                ) : (
+                  <button
+                    className="oauth-btn oauth-btn-connect"
+                    onClick={() => onConnectProvider(provider.id)}
+                    disabled={!provider.configured || busy}
+                  >
+                    {busy ? '...' : 'Connect'}
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="conversation-list">
@@ -28,12 +81,8 @@ export default function Sidebar({
               }`}
               onClick={() => onSelectConversation(conv.id)}
             >
-              <div className="conversation-title">
-                {conv.title || 'New Conversation'}
-              </div>
-              <div className="conversation-meta">
-                {conv.message_count} messages
-              </div>
+              <div className="conversation-title">{conv.title || 'New Conversation'}</div>
+              <div className="conversation-meta">{conv.message_count} messages</div>
             </div>
           ))
         )}

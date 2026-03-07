@@ -55,6 +55,40 @@ const COUNCIL_MODELS = [
 const CHAIRMAN_MODEL = 'google/gemini-3-pro-preview';
 ```
 
+### 4. Configure ChatGPT and Claude OAuth (Optional)
+
+This app now supports provider OAuth for ChatGPT and Claude. If connected, OpenAI/Anthropic-prefixed models are attempted via provider OAuth first and then fall back to OpenRouter if OAuth calls fail.
+
+There is no universal "default endpoint" you can assume here. You must use OAuth authorize/token URLs from OAuth apps you create/configure with each provider.
+
+Add provider credentials and endpoints to `.env`:
+
+```bash
+# Server URLs
+APP_BASE_URL=http://localhost:8001
+FRONTEND_BASE_URL=http://localhost:5173
+
+# OpenAI (ChatGPT) OAuth
+OPENAI_OAUTH_CLIENT_ID=
+OPENAI_OAUTH_CLIENT_SECRET=
+OPENAI_OAUTH_AUTHORIZE_URL=
+OPENAI_OAUTH_TOKEN_URL=
+OPENAI_OAUTH_SCOPE=openid profile email offline_access
+
+# Anthropic (Claude) OAuth
+ANTHROPIC_OAUTH_CLIENT_ID=
+ANTHROPIC_OAUTH_CLIENT_SECRET=
+ANTHROPIC_OAUTH_AUTHORIZE_URL=
+ANTHROPIC_OAUTH_TOKEN_URL=
+ANTHROPIC_OAUTH_SCOPE=openid profile email offline_access
+```
+
+Set your OAuth app callback URLs to:
+- `http://localhost:8001/api/auth/openai/callback`
+- `http://localhost:8001/api/auth/anthropic/callback`
+
+After server restart, use the sidebar **Provider OAuth** section to connect or disconnect each provider.
+
 ## Running the Application
 
 **Option 1: Use the start script**
@@ -80,6 +114,6 @@ Then open http://localhost:5173 in your browser.
 
 ## Tech Stack
 
-- **Backend:** Node.js/Express, native fetch, OpenRouter API
+- **Backend:** Node.js/Express, native fetch, OpenRouter API, OAuth provider integrations
 - **Frontend:** React + Vite, react-markdown for rendering
-- **Storage:** JSON files in `data/conversations/`
+- **Storage:** JSON files in `data/conversations/` plus `data/oauth_tokens.json`

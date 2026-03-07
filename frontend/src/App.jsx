@@ -9,10 +9,13 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [authProviders, setAuthProviders] = useState({});
+  const [oauthBusyProvider, setOauthBusyProvider] = useState(null);
 
-  // Load conversations on mount
+  // Load conversations and auth status on mount
   useEffect(() => {
     loadConversations();
+    loadAuthProviders();
   }, []);
 
   // Load conversation details when selected
@@ -40,6 +43,17 @@ function App() {
     }
   };
 
+  const loadAuthProviders = async () => {
+    try {
+      const providers = await api.getAuthProviders();
+      setAuthProviders(providers);
+      return providers;
+    } catch (error) {
+      console.error('Failed to load auth providers:', error);
+      return null;
+    }
+  };
+
   const handleNewConversation = async () => {
     try {
       const newConv = await api.createConversation();
@@ -57,8 +71,55 @@ function App() {
     setCurrentConversationId(id);
   };
 
+  const handleConnectProvider = async (providerId) => {
+    setOauthBusyProvider(providerId);
+
+    try {
+      const { auth_url: authUrl } = await api.startOAuth(providerId);
+      const popup = window.open(authUrl, `oauth-${providerId}`, 'width=520,height=720');
+
+      // Fallback if browser blocks popups
+      if (!popup) {
+        window.location.href = authUrl;
+        return;
+      }
+
+      const poll = window.setInterval(async () => {
+        if (popup.closed) {
+          window.clearInterval(poll);
+          await loadAuthProviders();
+          setOauthBusyProvider(null);
+          return;
+        }
+
+        const latest = await loadAuthProviders();
+        if (latest && latest[providerId] && latest[providerId].connected) {
+          window.clearInterval(poll);
+          popup.close();
+          setOauthBusyProvider(null);
+        }
+      }, 1200);
+    } catch (error) {
+      console.error(`Failed to connect ${providerId}:`, error);
+      setOauthBusyProvider(null);
+    }
+  };
+
+  const handleDisconnectProvider = async (providerId) => {
+    setOauthBusyProvider(providerId);
+
+    try {
+      await api.disconnectOAuth(providerId);
+      await loadAuthProviders();
+    } catch (error) {
+      console.error(`Failed to disconnect ${providerId}:`, error);
+    } finally {
+      setOauthBusyProvider(null);
+    }
+  };
+
   const handleSendMessage = async (content) => {
-    if (!currentConversationId) return;
+    if (!currentConversationId || !currentConversation) return;
 
     setIsLoading(true);
     try {
@@ -188,6 +249,10 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        authProviders={authProviders}
+        oauthBusyProvider={oauthBusyProvider}
+        onConnectProvider={handleConnectProvider}
+        onDisconnectProvider={handleDisconnectProvider}
       />
       <ChatInterface
         conversation={currentConversation}

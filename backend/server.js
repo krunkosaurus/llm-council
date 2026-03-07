@@ -10,6 +10,12 @@ const {
   stage3SynthesizeFinal,
   calculateAggregateRankings,
 } = require('./council');
+const {
+  listProviderStatuses,
+  buildAuthorizationUrl,
+  handleOAuthCallback,
+  disconnectProvider,
+} = require('./oauth');
 
 const app = express();
 
@@ -21,9 +27,74 @@ app.use(
   })
 );
 
+function renderOAuthCallbackPage(ok, message) {
+  const escapedMessage = String(message)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const title = ok ? 'OAuth Success' : 'OAuth Failed';
+  const statusColor = ok ? '#1f8f45' : '#b42318';
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; margin: 2rem; color: #1f2937; }
+      h1 { margin-top: 0; color: ${statusColor}; }
+      p { line-height: 1.5; }
+      .hint { margin-top: 1rem; color: #6b7280; font-size: 0.95rem; }
+    </style>
+  </head>
+  <body>
+    <h1>${title}</h1>
+    <p>${escapedMessage}</p>
+    <p class="hint">You can close this window and return to LLM Council.</p>
+    <script>setTimeout(() => window.close(), 1200);</script>
+  </body>
+</html>`;
+}
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'LLM Council API' });
+});
+
+// OAuth provider status
+app.get('/api/auth/providers', (req, res) => {
+  res.json(listProviderStatuses());
+});
+
+// Start OAuth flow
+app.get('/api/auth/:provider/start', (req, res) => {
+  try {
+    const result = buildAuthorizationUrl(req.params.provider);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
+// OAuth callback endpoint
+app.get('/api/auth/:provider/callback', async (req, res) => {
+  try {
+    const result = await handleOAuthCallback(req.params.provider, req.query);
+    res.status(result.ok ? 200 : 400).send(renderOAuthCallbackPage(result.ok, result.message));
+  } catch (e) {
+    res.status(e.status || 400).send(renderOAuthCallbackPage(false, e.message));
+  }
+});
+
+// Disconnect OAuth provider
+app.post('/api/auth/:provider/disconnect', (req, res) => {
+  try {
+    disconnectProvider(req.params.provider);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
 });
 
 // List all conversations
@@ -66,8 +137,7 @@ app.post('/api/conversations/:conversationId/message', async (req, res) => {
     storage.updateConversationTitle(conversationId, title);
   }
 
-  const [stage1Results, stage2Results, stage3Result, metadata] =
-    await runFullCouncil(content);
+  const [stage1Results, stage2Results, stage3Result, metadata] = await runFullCouncil(content);
 
   storage.addAssistantMessage(conversationId, stage1Results, stage2Results, stage3Result);
 
