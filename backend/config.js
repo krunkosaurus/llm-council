@@ -1,18 +1,13 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || null;
-const OPENROUTER_API_URL =
-  process.env.OPENROUTER_API_URL || 'https://openrouter.ai/api/v1/chat/completions';
+const COUNCIL_MODELS = (process.env.COUNCIL_MODELS ||
+  'openai/gpt-5.1,anthropic/claude-sonnet-4.5')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
 
-const COUNCIL_MODELS = [
-  'openai/gpt-5.1',
-  'google/gemini-3-pro-preview',
-  'anthropic/claude-sonnet-4.5',
-  'x-ai/grok-4',
-];
-
-const CHAIRMAN_MODEL = 'google/gemini-3-pro-preview';
+const CHAIRMAN_MODEL = process.env.CHAIRMAN_MODEL || 'openai/gpt-5.1';
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'conversations');
 const OAUTH_TOKENS_PATH = path.join(__dirname, '..', 'data', 'oauth_tokens.json');
@@ -52,8 +47,6 @@ const OAUTH_PROVIDERS = {
 };
 
 module.exports = {
-  OPENROUTER_API_KEY,
-  OPENROUTER_API_URL,
   COUNCIL_MODELS,
   CHAIRMAN_MODEL,
   DATA_DIR,

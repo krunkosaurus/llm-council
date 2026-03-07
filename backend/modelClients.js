@@ -1,6 +1,4 @@
 const {
-  OPENROUTER_API_KEY,
-  OPENROUTER_API_URL,
   OPENAI_API_URL,
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
@@ -29,50 +27,7 @@ function inferProviderFromModel(model) {
     return 'anthropic';
   }
 
-  return 'openrouter';
-}
-
-/**
- * Query a single model via OpenRouter API.
- * Returns { content, reasoning_details } or null on failure.
- */
-async function queryViaOpenRouter(model, messages, timeout = 120000) {
-  if (!OPENROUTER_API_KEY) {
-    console.error(`OPENROUTER_API_KEY missing; cannot query fallback model ${model}`);
-    return null;
-  }
-
-  const headers = {
-    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-    'Content-Type': 'application/json',
-  };
-
-  const payload = { model, messages };
-
-  try {
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(timeout),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`HTTP ${response.status}: ${text}`);
-    }
-
-    const data = await response.json();
-    const message = data.choices && data.choices[0] ? data.choices[0].message : null;
-
-    return {
-      content: message ? message.content || null : null,
-      reasoning_details: message ? message.reasoning_details || null : null,
-    };
-  } catch (e) {
-    console.error(`Error querying OpenRouter model ${model}: ${e.message}`);
-    return null;
-  }
+  return null;
 }
 
 function parseOpenAIContent(message) {
@@ -101,6 +56,7 @@ function parseOpenAIContent(message) {
 async function queryViaOpenAIOAuth(model, messages, timeout = 120000) {
   const accessToken = await getProviderAccessToken('openai');
   if (!accessToken) {
+    console.error(`OpenAI OAuth token unavailable; skipping model ${model}`);
     return null;
   }
 
@@ -179,6 +135,7 @@ function parseAnthropicContent(contentBlocks) {
 async function queryViaAnthropicOAuth(model, messages, timeout = 120000) {
   const accessToken = await getProviderAccessToken('anthropic');
   if (!accessToken) {
+    console.error(`Claude OAuth token unavailable; skipping model ${model}`);
     return null;
   }
 
@@ -214,27 +171,22 @@ async function queryViaAnthropicOAuth(model, messages, timeout = 120000) {
 }
 
 /**
- * Query a single model, trying provider OAuth for OpenAI/Anthropic models,
- * then falling back to OpenRouter if needed.
+ * Query a single model via provider OAuth only.
+ * Unsupported providers or missing OAuth credentials return null.
  */
 async function queryModel(model, messages, timeout = 120000) {
   const provider = inferProviderFromModel(model);
 
   if (provider === 'openai') {
-    const oauthResponse = await queryViaOpenAIOAuth(model, messages, timeout);
-    if (oauthResponse !== null) {
-      return oauthResponse;
-    }
+    return queryViaOpenAIOAuth(model, messages, timeout);
   }
 
   if (provider === 'anthropic') {
-    const oauthResponse = await queryViaAnthropicOAuth(model, messages, timeout);
-    if (oauthResponse !== null) {
-      return oauthResponse;
-    }
+    return queryViaAnthropicOAuth(model, messages, timeout);
   }
 
-  return queryViaOpenRouter(model, messages, timeout);
+  console.error(`Unsupported model provider for ${model}; only openai/* and anthropic/* are allowed`);
+  return null;
 }
 
 /**

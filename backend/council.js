@@ -1,4 +1,4 @@
-const { queryModel, queryModelsParallel } = require('./openrouter');
+const { queryModel, queryModelsParallel } = require('./modelClients');
 const { COUNCIL_MODELS, CHAIRMAN_MODEL } = require('./config');
 
 /**
@@ -203,7 +203,15 @@ Question: ${userQuery}
 Title:`;
 
   const messages = [{ role: 'user', content: titlePrompt }];
-  const response = await queryModel('google/gemini-2.5-flash', messages, 30000);
+  const titleModels = ['openai/gpt-5.1', 'anthropic/claude-sonnet-4.5'];
+
+  let response = null;
+  for (const model of titleModels) {
+    response = await queryModel(model, messages, 30000);
+    if (response !== null) {
+      break;
+    }
+  }
 
   if (response === null) {
     return 'New Conversation';
