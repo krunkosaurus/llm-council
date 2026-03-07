@@ -7,8 +7,9 @@ echo ""
 
 # Start backend
 echo "Starting backend on http://localhost:8001..."
-uv run python -m backend.main &
+cd backend && node server.js &
 BACKEND_PID=$!
+cd ..
 
 # Wait a bit for backend to start
 sleep 2

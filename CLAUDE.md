@@ -10,39 +10,42 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 
 ### Backend Structure (`backend/`)
 
-**`config.py`**
+Node.js/Express backend in plain JavaScript. Dependencies: express, cors, dotenv, uuid. Uses native `fetch` (Node 18+) for HTTP requests.
+
+**`config.js`**
 - Contains `COUNCIL_MODELS` (list of OpenRouter model identifiers)
 - Contains `CHAIRMAN_MODEL` (model that synthesizes final answer)
 - Uses environment variable `OPENROUTER_API_KEY` from `.env`
 - Backend runs on **port 8001** (NOT 8000 - user had another app on 8000)
 
-**`openrouter.py`**
-- `query_model()`: Single async model query
-- `query_models_parallel()`: Parallel queries using `asyncio.gather()`
-- Returns dict with 'content' and optional 'reasoning_details'
-- Graceful degradation: returns None on failure, continues with successful responses
+**`openrouter.js`**
+- `queryModel()`: Single async model query using native `fetch`
+- `queryModelsParallel()`: Parallel queries using `Promise.all()`
+- Returns object with 'content' and optional 'reasoning_details'
+- Graceful degradation: returns null on failure, continues with successful responses
 
-**`council.py`** - The Core Logic
-- `stage1_collect_responses()`: Parallel queries to all council models
-- `stage2_collect_rankings()`:
+**`council.js`** - The Core Logic
+- `stage1CollectResponses()`: Parallel queries to all council models
+- `stage2CollectRankings()`:
   - Anonymizes responses as "Response A, B, C, etc."
-  - Creates `label_to_model` mapping for de-anonymization
+  - Creates `labelToModel` mapping for de-anonymization
   - Prompts models to evaluate and rank (with strict format requirements)
-  - Returns tuple: (rankings_list, label_to_model_dict)
+  - Returns array: [rankings_list, labelToModel]
   - Each ranking includes both raw text and `parsed_ranking` list
-- `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings
-- `parse_ranking_from_text()`: Extracts "FINAL RANKING:" section, handles both numbered lists and plain format
-- `calculate_aggregate_rankings()`: Computes average rank position across all peer evaluations
+- `stage3SynthesizeFinal()`: Chairman synthesizes from all responses + rankings
+- `parseRankingFromText()`: Extracts "FINAL RANKING:" section, handles both numbered lists and plain format
+- `calculateAggregateRankings()`: Computes average rank position across all peer evaluations
 
-**`storage.py`**
+**`storage.js`**
 - JSON-based conversation storage in `data/conversations/`
 - Each conversation: `{id, created_at, messages[]}`
 - Assistant messages contain: `{role, stage1, stage2, stage3}`
 - Note: metadata (label_to_model, aggregate_rankings) is NOT persisted to storage, only returned via API
 
-**`main.py`**
-- FastAPI app with CORS enabled for localhost:5173 and localhost:3000
+**`server.js`**
+- Express app with CORS enabled for localhost:5173 and localhost:3000
 - POST `/api/conversations/{id}/message` returns metadata in addition to stages
+- POST `/api/conversations/{id}/message/stream` returns SSE events
 - Metadata includes: label_to_model mapping and aggregate_rankings
 
 ### Frontend Structure (`frontend/src/`)
@@ -111,39 +114,38 @@ This strict format allows reliable parsing while still getting thoughtful evalua
 
 ## Important Implementation Details
 
-### Relative Imports
-All backend modules use relative imports (e.g., `from .config import ...`) not absolute imports. This is critical for Python's module system to work correctly when running as `python -m backend.main`.
-
 ### Port Configuration
 - Backend: 8001 (changed from 8000 to avoid conflict)
 - Frontend: 5173 (Vite default)
-- Update both `backend/main.py` and `frontend/src/api.js` if changing
+- Update both `backend/server.js` and `frontend/src/api.js` if changing
+
+### Running the Backend
+Run from the `backend/` directory:
+```bash
+cd backend && node server.js
+```
+Or use the start script from project root: `./start.sh`
 
 ### Markdown Rendering
 All ReactMarkdown components must be wrapped in `<div className="markdown-content">` for proper spacing. This class is defined globally in `index.css`.
 
 ### Model Configuration
-Models are hardcoded in `backend/config.py`. Chairman can be same or different from council members. The current default is Gemini as chairman per user preference.
+Models are hardcoded in `backend/config.js`. Chairman can be same or different from council members. The current default is Gemini as chairman per user preference.
 
 ## Common Gotchas
 
-1. **Module Import Errors**: Always run backend as `python -m backend.main` from project root, not from backend directory
-2. **CORS Issues**: Frontend must match allowed origins in `main.py` CORS middleware
-3. **Ranking Parse Failures**: If models don't follow format, fallback regex extracts any "Response X" patterns in order
-4. **Missing Metadata**: Metadata is ephemeral (not persisted), only available in API responses
+1. **CORS Issues**: Frontend must match allowed origins in `server.js` CORS middleware
+2. **Ranking Parse Failures**: If models don't follow format, fallback regex extracts any "Response X" patterns in order
+3. **Missing Metadata**: Metadata is ephemeral (not persisted), only available in API responses
+4. **Node Version**: Requires Node 18+ for native `fetch` and `AbortSignal.timeout()`
 
 ## Future Enhancement Ideas
 
 - Configurable council/chairman via UI instead of config file
-- Streaming responses instead of batch loading
 - Export conversations to markdown/PDF
 - Model performance analytics over time
 - Custom ranking criteria (not just accuracy/insight)
-- Support for reasoning models (o1, etc.) with special handling
-
-## Testing Notes
-
-Use `test_openrouter.py` to verify API connectivity and test different model identifiers before adding to council. The script tests both streaming and non-streaming modes.
+- Support for reasoning models with special handling
 
 ## Data Flow Summary
 
