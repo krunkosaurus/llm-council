@@ -11,6 +11,7 @@ export default function Sidebar({
   onConnectProvider,
   onDisconnectProvider,
   onProviderModelChange,
+  onRefreshProviderModels,
   pendingCodeOAuth,
   pendingOAuthCode,
   oauthError,
@@ -87,18 +88,37 @@ export default function Sidebar({
                 {provider.setup_hint ? <div className="oauth-provider-hint">{provider.setup_hint}</div> : null}
                 {Array.isArray(provider.available_models) && provider.available_models.length > 0 ? (
                   <label className="oauth-model-picker">
-                    <span className="oauth-model-label">Model</span>
+                    <span className="oauth-model-label">
+                      Model
+                      {provider.dynamic_models ? (
+                        <button
+                          className="oauth-model-refresh"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onRefreshProviderModels(provider.id);
+                          }}
+                          disabled={!connected || busy || modelBusy}
+                          title="Refresh model list"
+                        >
+                          ↻
+                        </button>
+                      ) : null}
+                    </span>
                     <select
                       className="oauth-model-select"
                       value={provider.selected_model || ''}
                       onChange={(event) => onProviderModelChange(provider.id, event.target.value)}
                       disabled={!connected || busy || modelBusy}
                     >
-                      {provider.available_models.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
+                      {provider.available_models.length === 0 ? (
+                        <option value="">Loading models...</option>
+                      ) : (
+                        provider.available_models.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </label>
                 ) : null}

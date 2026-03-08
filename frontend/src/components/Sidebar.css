@@ -129,13 +129,36 @@
 }
 
 .oauth-model-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 4px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #6b7280;
+}
+
+.oauth-model-refresh {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+  transition: color 0.2s, transform 0.2s;
+  line-height: 1;
+}
+
+.oauth-model-refresh:hover:not(:disabled) {
+  color: #2563eb;
+  transform: rotate(90deg);
+}
+
+.oauth-model-refresh:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .oauth-model-select {

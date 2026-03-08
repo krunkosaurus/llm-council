@@ -39,6 +39,9 @@ const ANTHROPIC_MAX_TOKENS = Number(process.env.ANTHROPIC_MAX_TOKENS || '2048');
 const MANUS_API_URL = process.env.MANUS_API_URL || 'https://api.manus.ai';
 const MANUS_TASK_TIMEOUT_MS = Number(process.env.MANUS_TASK_TIMEOUT_MS || '300000');
 
+const OPENROUTER_API_URL = process.env.OPENROUTER_API_URL || 'https://openrouter.ai/api/v1';
+const OPENROUTER_MODEL_CACHE_TTL_MS = Number(process.env.OPENROUTER_MODEL_CACHE_TTL_MS || '3600000');
+
 const BUILTIN_PROVIDER_DEFINITIONS = {
   openai: {
     id: 'openai',
@@ -93,6 +96,19 @@ const BUILTIN_PROVIDER_DEFINITIONS = {
       { id: 'manus/manus-1.6-lite', label: 'Manus 1.6 Lite' },
       { id: 'manus/manus-1.6-max', label: 'Manus 1.6 Max' },
     ],
+  },
+  openrouter: {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    mode: 'env',
+    transport: 'openai-compatible',
+    auth_type: 'api_key',
+    api_key_env: 'OPENROUTER_API_KEY',
+    base_url: OPENROUTER_API_URL,
+    setup_hint: 'Set OPENROUTER_API_KEY to enable OpenRouter access.',
+    default_model_env: 'OPENROUTER_DEFAULT_MODEL',
+    models: [],
+    dynamic_models: true,
   },
 };
 
@@ -297,4 +313,6 @@ module.exports = {
   ANTHROPIC_MAX_TOKENS,
   MANUS_API_URL,
   MANUS_TASK_TIMEOUT_MS,
+  OPENROUTER_API_URL,
+  OPENROUTER_MODEL_CACHE_TTL_MS,
 };

@@ -14,6 +14,7 @@ const {
 } = require('./config');
 const { getProviderToken, setProviderToken, clearProviderToken } = require('./oauthStorage');
 const { getSelectedProviderModel, getAvailableProviderModels } = require('./providerSettings');
+const { clearProviderDynamicModels } = require('./dynamicModels');
 
 const PENDING_STATES_TTL_MS = 10 * 60 * 1000;
 const REFRESH_GRACE_PERIOD_MS = 60 * 1000;
@@ -466,9 +467,10 @@ function parseAnthropicAuthorizationCode(input) {
   return { code: raw, state: null };
 }
 
-function buildProviderStatus(providerId) {
+async function buildProviderStatus(providerId) {
   const provider = getProviderOrThrow(providerId);
-  const selectedModel = getSelectedProviderModel(providerId);
+  const selectedModel = await getSelectedProviderModel(providerId, getProviderAuthorization);
+  const availableModels = await getAvailableProviderModels(providerId, getProviderAuthorization);
 
   if (provider.auth_type !== 'oauth') {
     const authorization = getStaticProviderAuthorization(providerId);
@@ -483,7 +485,8 @@ function buildProviderStatus(providerId) {
       has_refresh_token: false,
       connect_method: provider.mode,
       selected_model: selectedModel,
-      available_models: getAvailableProviderModels(providerId),
+      available_models: availableModels,
+      dynamic_models: provider.dynamic_models || false,
       status_text: connected ? 'Configured' : 'Needs setup',
       setup_hint: connected
         ? provider.mode === 'config' && provider.auth_type === 'none'
@@ -504,16 +507,17 @@ function buildProviderStatus(providerId) {
     has_refresh_token: Boolean(token && token.refresh_token),
     connect_method: provider.mode,
     selected_model: selectedModel,
-    available_models: getAvailableProviderModels(providerId),
+    available_models: availableModels,
+    dynamic_models: provider.dynamic_models || false,
     status_text: Boolean(token && token.access_token) ? 'Connected' : 'Not connected',
     setup_hint: null,
   };
 }
 
-function listProviderStatuses() {
-  return Object.fromEntries(
-    Object.keys(PROVIDER_DEFINITIONS).map((providerId) => [providerId, buildProviderStatus(providerId)])
-  );
+async function listProviderStatuses() {
+  const providerIds = Object.keys(PROVIDER_DEFINITIONS);
+  const statuses = await Promise.all(providerIds.map(providerId => buildProviderStatus(providerId)));
+  return Object.fromEntries(providerIds.map((providerId, index) => [providerId, statuses[index]]));
 }
 
 async function buildOpenAIAuthorizationUrl() {
@@ -855,6 +859,7 @@ function disconnectProvider(providerId) {
     throw e;
   }
   clearProviderToken(providerId);
+  clearProviderDynamicModels(providerId);
 }
 
 module.exports = {

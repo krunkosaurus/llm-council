@@ -4,7 +4,13 @@ const {
   PROVIDER_SETTINGS_PATH,
   PROVIDER_MODEL_CATALOG,
   DEFAULT_PROVIDER_MODELS,
+  PROVIDER_DEFINITIONS,
+  OPENROUTER_MODEL_CACHE_TTL_MS,
 } = require('./config');
+const {
+  getProviderDynamicModels,
+  providerSupportsDynamicModels,
+} = require('./dynamicModels');
 
 function ensureProviderSettingsDir() {
   fs.mkdirSync(path.dirname(PROVIDER_SETTINGS_PATH), { recursive: true });
@@ -35,31 +41,52 @@ function writeProviderSettingsStore(store) {
   fs.writeFileSync(PROVIDER_SETTINGS_PATH, JSON.stringify(store, null, 2));
 }
 
-function getProviderCatalog(providerId) {
-  return Array.isArray(PROVIDER_MODEL_CATALOG[providerId]) ? PROVIDER_MODEL_CATALOG[providerId] : [];
+async function getProviderCatalog(providerId, getProviderAuthorization = null) {
+  const staticModels = Array.isArray(PROVIDER_MODEL_CATALOG[providerId])
+    ? PROVIDER_MODEL_CATALOG[providerId]
+    : [];
+
+  const provider = PROVIDER_DEFINITIONS[providerId];
+  if (providerSupportsDynamicModels(provider) && getProviderAuthorization) {
+    const dynamicModels = await getProviderDynamicModels(
+      providerId,
+      getProviderAuthorization,
+      OPENROUTER_MODEL_CACHE_TTL_MS
+    );
+    return [...staticModels, ...dynamicModels];
+  }
+
+  return staticModels;
 }
 
-function getDefaultProviderModel(providerId) {
-  return DEFAULT_PROVIDER_MODELS[providerId] || (getProviderCatalog(providerId)[0] || {}).id || null;
+async function getDefaultProviderModel(providerId, getProviderAuthorization = null) {
+  const defaultFromEnv = DEFAULT_PROVIDER_MODELS[providerId];
+  if (defaultFromEnv) {
+    return defaultFromEnv;
+  }
+
+  const catalog = await getProviderCatalog(providerId, getProviderAuthorization);
+  return (catalog[0] || {}).id || null;
 }
 
-function isValidProviderModel(providerId, modelId) {
-  return getProviderCatalog(providerId).some((model) => model.id === modelId);
+async function isValidProviderModel(providerId, modelId, getProviderAuthorization = null) {
+  const catalog = await getProviderCatalog(providerId, getProviderAuthorization);
+  return catalog.some((model) => model.id === modelId);
 }
 
-function getSelectedProviderModel(providerId) {
+async function getSelectedProviderModel(providerId, getProviderAuthorization = null) {
   const store = readProviderSettingsStore();
   const selectedModel = store[providerId] && store[providerId].selected_model;
 
-  if (selectedModel && isValidProviderModel(providerId, selectedModel)) {
+  if (selectedModel && await isValidProviderModel(providerId, selectedModel, getProviderAuthorization)) {
     return selectedModel;
   }
 
-  return getDefaultProviderModel(providerId);
+  return getDefaultProviderModel(providerId, getProviderAuthorization);
 }
 
-function setSelectedProviderModel(providerId, modelId) {
-  if (!isValidProviderModel(providerId, modelId)) {
+async function setSelectedProviderModel(providerId, modelId, getProviderAuthorization = null) {
+  if (!await isValidProviderModel(providerId, modelId, getProviderAuthorization)) {
     const e = new Error(`Unsupported model for ${providerId}: ${modelId}`);
     e.status = 400;
     throw e;
@@ -76,9 +103,10 @@ function setSelectedProviderModel(providerId, modelId) {
   return store[providerId];
 }
 
-function getAvailableProviderModels(providerId) {
-  const selectedModel = getSelectedProviderModel(providerId);
-  return getProviderCatalog(providerId).map((model) => ({
+async function getAvailableProviderModels(providerId, getProviderAuthorization = null) {
+  const selectedModel = await getSelectedProviderModel(providerId, getProviderAuthorization);
+  const catalog = await getProviderCatalog(providerId, getProviderAuthorization);
+  return catalog.map((model) => ({
     ...model,
     selected: model.id === selectedModel,
   }));
