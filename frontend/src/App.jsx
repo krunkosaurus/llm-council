@@ -41,6 +41,7 @@ function App() {
   const [authProviders, setAuthProviders] = useState({});
   const [oauthBusyProvider, setOauthBusyProvider] = useState(null);
   const [providerModelBusy, setProviderModelBusy] = useState(null);
+  const [deletingConversationId, setDeletingConversationId] = useState(null);
   const [pendingCodeOAuth, setPendingCodeOAuth] = useState(null);
   const [pendingOAuthCode, setPendingOAuthCode] = useState('');
   const [oauthError, setOauthError] = useState(null);
@@ -165,11 +166,50 @@ function App() {
     setCurrentConversationId(id);
   };
 
+  const handleDeleteConversation = async (conversationId) => {
+    if (!conversationId || deletingConversationId) {
+      return;
+    }
+
+    const confirmed = window.confirm('Delete this conversation? This cannot be undone.');
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingConversationId(conversationId);
+
+    try {
+      await api.deleteConversation(conversationId);
+      const updatedConversations = await api.listConversations();
+      setConversations(updatedConversations);
+
+      if (currentConversationId === conversationId) {
+        const nextConversationId = updatedConversations[0]?.id || null;
+        setCurrentConversationId(nextConversationId);
+        if (!nextConversationId) {
+          setCurrentConversation(null);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to delete conversation ${conversationId}:`, error);
+    } finally {
+      setDeletingConversationId(null);
+    }
+  };
+
   const handleConnectProvider = async (providerId) => {
     setOauthBusyProvider(providerId);
     setOauthError(null);
 
     try {
+      const provider = authProviders && authProviders[providerId];
+      if (provider && (provider.connect_method === 'env' || provider.connect_method === 'config')) {
+        await api.connectOAuth(providerId);
+        await loadAuthProviders();
+        setOauthBusyProvider(null);
+        return;
+      }
+
       const start = await api.startOAuth(providerId);
       const authUrl = start.auth_url;
 
@@ -427,10 +467,12 @@ function App() {
         conversations={conversations}
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
+        onDeleteConversation={handleDeleteConversation}
         onNewConversation={handleNewConversation}
         authProviders={authProviders}
         oauthBusyProvider={oauthBusyProvider}
         providerModelBusy={providerModelBusy}
+        deletingConversationId={deletingConversationId}
         onConnectProvider={handleConnectProvider}
         onDisconnectProvider={handleDisconnectProvider}
         onProviderModelChange={handleProviderModelChange}

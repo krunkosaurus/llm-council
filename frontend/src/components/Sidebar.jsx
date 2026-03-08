@@ -4,10 +4,12 @@ export default function Sidebar({
   conversations,
   currentConversationId,
   onSelectConversation,
+  onDeleteConversation,
   onNewConversation,
   authProviders,
   oauthBusyProvider,
   providerModelBusy,
+  deletingConversationId,
   onConnectProvider,
   onDisconnectProvider,
   onProviderModelChange,
@@ -39,8 +41,11 @@ export default function Sidebar({
             const modelBusy = providerModelBusy === provider.id;
             const connected = provider.connected;
             const isPendingCodeFlow = pendingCodeOAuth?.providerId === provider.id;
-            const supportsInteractiveConnect =
-              provider.connect_method === 'redirect' || provider.connect_method === 'code';
+            const supportsConnectControls =
+              provider.connect_method === 'redirect' ||
+              provider.connect_method === 'code' ||
+              provider.connect_method === 'env' ||
+              provider.connect_method === 'config';
             const statusText =
               provider.status_text ||
               (!provider.configured
@@ -64,7 +69,7 @@ export default function Sidebar({
                       {statusText}
                     </div>
                   </div>
-                  {supportsInteractiveConnect
+                  {supportsConnectControls
                     ? connected ? (
                         <button
                           className="oauth-btn oauth-btn-disconnect"
@@ -166,8 +171,30 @@ export default function Sidebar({
               }`}
               onClick={() => onSelectConversation(conv.id)}
             >
-              <div className="conversation-title">{conv.title || 'New Conversation'}</div>
-              <div className="conversation-meta">{conv.message_count} messages</div>
+              <div className="conversation-header">
+                <div className="conversation-title">{conv.title || 'New Conversation'}</div>
+                <button
+                  type="button"
+                  className="conversation-delete-btn"
+                  title="Delete conversation"
+                  aria-label={`Delete ${conv.title || 'conversation'}`}
+                  disabled={deletingConversationId === conv.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteConversation(conv.id);
+                  }}
+                >
+                  {deletingConversationId === conv.id ? '...' : '×'}
+                </button>
+              </div>
+              <div className="conversation-footer">
+                <div className="conversation-meta">{conv.message_count} messages</div>
+                {conv.winner_label ? (
+                  <div className="conversation-winner-badge" title={conv.winner_model || conv.winner_label}>
+                    👑 {conv.winner_label}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ))
         )}

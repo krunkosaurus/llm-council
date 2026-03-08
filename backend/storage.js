@@ -37,6 +37,16 @@ function getConversation(conversationId) {
   return JSON.parse(data);
 }
 
+function deleteConversation(conversationId) {
+  const filePath = getConversationPath(conversationId);
+  if (!fs.existsSync(filePath)) {
+    return false;
+  }
+
+  fs.unlinkSync(filePath);
+  return true;
+}
+
 function saveConversation(conversation) {
   ensureDataDir();
 
@@ -54,11 +64,41 @@ function listConversations() {
     if (filename.endsWith('.json')) {
       const filePath = path.join(DATA_DIR, filename);
       const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      let winnerModel = null;
+
+      for (let index = data.messages.length - 1; index >= 0; index -= 1) {
+        const message = data.messages[index];
+        if (!message || message.role !== 'assistant') {
+          continue;
+        }
+
+        const aggregateRankings =
+          message.metadata && Array.isArray(message.metadata.aggregate_rankings)
+            ? message.metadata.aggregate_rankings
+            : null;
+
+        if (aggregateRankings && aggregateRankings[0] && typeof aggregateRankings[0].model === 'string') {
+          const rankedWinner = aggregateRankings[0].model.trim();
+          if (rankedWinner) {
+            winnerModel = rankedWinner;
+            break;
+          }
+        }
+
+        if (message.stage3 && typeof message.stage3.model === 'string' && message.stage3.model.trim()) {
+          winnerModel = message.stage3.model.trim();
+          break;
+        }
+      }
+
+      const winnerLabel = winnerModel ? winnerModel.split('/')[1] || winnerModel : null;
       conversations.push({
         id: data.id,
         created_at: data.created_at,
         title: data.title || 'New Conversation',
         message_count: data.messages.length,
+        winner_model: winnerModel,
+        winner_label: winnerLabel,
       });
     }
   }
@@ -159,6 +199,7 @@ module.exports = {
   ensureDataDir,
   createConversation,
   getConversation,
+  deleteConversation,
   saveConversation,
   listConversations,
   addUserMessage,

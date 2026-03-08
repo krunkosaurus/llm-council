@@ -84,9 +84,38 @@ function getAvailableProviderModels(providerId) {
   }));
 }
 
+function isProviderEnabled(providerId) {
+  const store = readProviderSettingsStore();
+  const providerSettings = store[providerId];
+
+  if (!providerSettings || typeof providerSettings !== 'object') {
+    return true;
+  }
+
+  if (providerSettings.enabled === undefined) {
+    return true;
+  }
+
+  return providerSettings.enabled !== false;
+}
+
+function setProviderEnabled(providerId, enabled) {
+  const store = readProviderSettingsStore();
+  store[providerId] = {
+    ...(store[providerId] || {}),
+    enabled: Boolean(enabled),
+    updated_at: new Date().toISOString(),
+  };
+  writeProviderSettingsStore(store);
+
+  return store[providerId];
+}
+
 module.exports = {
   getSelectedProviderModel,
   setSelectedProviderModel,
   getAvailableProviderModels,
   isValidProviderModel,
+  isProviderEnabled,
+  setProviderEnabled,
 };

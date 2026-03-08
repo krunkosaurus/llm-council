@@ -15,6 +15,7 @@ const {
   buildAuthorizationUrl,
   handleOAuthCallback,
   completeOAuthCode,
+  connectProvider,
   disconnectProvider,
 } = require('./oauth');
 const { setSelectedProviderModel } = require('./providerSettings');
@@ -142,6 +143,20 @@ app.post('/api/auth/:provider/disconnect', (req, res) => {
   }
 });
 
+// Connect or re-enable provider
+app.post('/api/auth/:provider/connect', (req, res) => {
+  try {
+    connectProvider(req.params.provider);
+    const providers = listProviderStatuses();
+    res.json({
+      ok: true,
+      provider: providers[req.params.provider],
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
 // Update selected model for provider
 app.post('/api/auth/:provider/model', (req, res) => {
   try {
@@ -182,6 +197,15 @@ app.get('/api/conversations/:conversationId', (req, res) => {
     return res.status(404).json({ detail: 'Conversation not found' });
   }
   res.json(conversation);
+});
+
+// Delete a specific conversation
+app.delete('/api/conversations/:conversationId', (req, res) => {
+  const deleted = storage.deleteConversation(req.params.conversationId);
+  if (!deleted) {
+    return res.status(404).json({ detail: 'Conversation not found' });
+  }
+  res.json({ ok: true });
 });
 
 // Send message (non-streaming)

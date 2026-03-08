@@ -474,6 +474,55 @@ async function readOpenAIStream(response) {
   return parseOpenAIResponse(latestResponse);
 }
 
+function getHttpStatusFromError(error) {
+  if (error && Number.isInteger(error.status)) {
+    return error.status;
+  }
+
+  const message = error && error.message ? String(error.message) : '';
+  const match = message.match(/HTTP (\d{3}):/);
+  return match ? Number(match[1]) : null;
+}
+
+function isOpenAIAuthorizationError(error) {
+  const status = getHttpStatusFromError(error);
+  return status === 401 || status === 403;
+}
+
+async function requestOpenAIOAuthResponse(payload, auth, timeout, includeAccountHeader = true) {
+  const headers = {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json',
+    originator: 'llm-council',
+    'User-Agent': 'llm-council/0.1',
+  };
+
+  if (includeAccountHeader && auth.accountId) {
+    headers['ChatGPT-Account-Id'] = auth.accountId;
+  }
+
+  const response = await fetch(OPENAI_CODEX_API_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeout),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const message = text || response.statusText || '(empty response body)';
+    const error = new Error(`HTTP ${response.status}: ${message}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const content = await readOpenAIStream(response);
+  return {
+    content,
+    reasoning_details: null,
+  };
+}
+
 async function queryViaOpenAIOAuth(model, messages, timeout = 120000) {
   const auth = await getProviderAuthorization('openai');
   if (!auth || !auth.accessToken) {
@@ -484,35 +533,47 @@ async function queryViaOpenAIOAuth(model, messages, timeout = 120000) {
   const payload = buildOpenAIOAuthPayload(model, messages, instructions);
 
   try {
-    const headers = {
-      Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'application/json',
-      originator: 'llm-council',
-      'User-Agent': 'llm-council/0.1',
-    };
+    try {
+      return await requestOpenAIOAuthResponse(payload, auth, timeout, true);
+    } catch (initialError) {
+      let lastError = initialError;
+      if (!isOpenAIAuthorizationError(lastError)) {
+        throw lastError;
+      }
 
-    if (auth.accountId) {
-      headers['ChatGPT-Account-Id'] = auth.accountId;
+      if (auth.accountId) {
+        try {
+          return await requestOpenAIOAuthResponse(payload, auth, timeout, false);
+        } catch (withoutAccountIdError) {
+          lastError = withoutAccountIdError;
+        }
+      }
+
+      if (!isOpenAIAuthorizationError(lastError)) {
+        throw lastError;
+      }
+
+      const refreshedAuth = await getProviderAuthorization('openai', { forceRefresh: true });
+      if (!refreshedAuth || !refreshedAuth.accessToken) {
+        throw lastError;
+      }
+
+      try {
+        return await requestOpenAIOAuthResponse(payload, refreshedAuth, timeout, true);
+      } catch (refreshedError) {
+        lastError = refreshedError;
+      }
+
+      if (!isOpenAIAuthorizationError(lastError)) {
+        throw lastError;
+      }
+
+      if (refreshedAuth.accountId) {
+        return await requestOpenAIOAuthResponse(payload, refreshedAuth, timeout, false);
+      }
+
+      throw lastError;
     }
-
-    const response = await fetch(OPENAI_CODEX_API_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(timeout),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`HTTP ${response.status}: ${text}`);
-    }
-
-    const content = await readOpenAIStream(response);
-
-    return {
-      content,
-      reasoning_details: null,
-    };
   } catch (e) {
     throw new Error(`OpenAI OAuth request failed: ${e.message}`);
   }

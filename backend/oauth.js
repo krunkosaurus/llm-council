@@ -13,7 +13,12 @@ const {
   ANTHROPIC_OAUTH_REDIRECT_URI,
 } = require('./config');
 const { getProviderToken, setProviderToken, clearProviderToken } = require('./oauthStorage');
-const { getSelectedProviderModel, getAvailableProviderModels } = require('./providerSettings');
+const {
+  getSelectedProviderModel,
+  getAvailableProviderModels,
+  isProviderEnabled,
+  setProviderEnabled,
+} = require('./providerSettings');
 
 const PENDING_STATES_TTL_MS = 10 * 60 * 1000;
 const REFRESH_GRACE_PERIOD_MS = 60 * 1000;
@@ -230,6 +235,10 @@ function getStaticProviderApiKey(provider) {
 }
 
 function getStaticProviderAuthorization(providerId) {
+  if (!isProviderEnabled(providerId)) {
+    return null;
+  }
+
   const provider = getProviderOrThrow(providerId);
   const apiKey = getStaticProviderApiKey(provider);
 
@@ -471,25 +480,28 @@ function buildProviderStatus(providerId) {
   const selectedModel = getSelectedProviderModel(providerId);
 
   if (provider.auth_type !== 'oauth') {
-    const authorization = getStaticProviderAuthorization(providerId);
-    const connected = Boolean(authorization);
+    const enabled = isProviderEnabled(providerId);
+    const configured = Boolean(getStaticProviderApiKey(provider) || provider.auth_type === 'none');
+    const connected = configured && enabled;
 
     return {
       id: provider.id,
       name: provider.name,
-      configured: connected,
+      configured,
       connected,
       expires_at: null,
       has_refresh_token: false,
       connect_method: provider.mode,
       selected_model: selectedModel,
       available_models: getAvailableProviderModels(providerId),
-      status_text: connected ? 'Configured' : 'Needs setup',
-      setup_hint: connected
-        ? provider.mode === 'config' && provider.auth_type === 'none'
-          ? provider.setup_hint || null
-          : null
-        : provider.setup_hint || null,
+      status_text: !configured ? 'Needs setup' : connected ? 'Configured' : 'Disconnected',
+      setup_hint: !configured
+        ? provider.setup_hint || null
+        : connected
+          ? provider.mode === 'config' && provider.auth_type === 'none'
+            ? provider.setup_hint || null
+            : null
+          : 'Temporarily disconnected from this council session.',
     };
   }
 
@@ -797,8 +809,9 @@ async function refreshProviderToken(providerId, currentToken) {
   throw new Error(`Unsupported provider refresh: ${providerId}`);
 }
 
-async function getProviderAuthorization(providerId) {
+async function getProviderAuthorization(providerId, options = {}) {
   const provider = getProviderOrThrow(providerId);
+  const forceRefresh = Boolean(options && options.forceRefresh);
 
   if (provider.auth_type !== 'oauth') {
     return getStaticProviderAuthorization(providerId);
@@ -809,7 +822,7 @@ async function getProviderAuthorization(providerId) {
     return null;
   }
 
-  if (!isTokenExpiring(token) || !token.refresh_token) {
+  if ((!isTokenExpiring(token) && !forceRefresh) || !token.refresh_token) {
     return {
       accessToken: token.access_token,
       accountId: token.account_id || null,
@@ -850,11 +863,28 @@ async function getProviderAccessToken(providerId) {
 function disconnectProvider(providerId) {
   const provider = getProviderOrThrow(providerId);
   if (provider.auth_type !== 'oauth') {
-    const e = new Error(`${provider.name} is configured locally and cannot be disconnected from the UI`);
+    setProviderEnabled(providerId, false);
+    return;
+  }
+  clearProviderToken(providerId);
+}
+
+function connectProvider(providerId) {
+  const provider = getProviderOrThrow(providerId);
+  if (provider.auth_type === 'oauth') {
+    const e = new Error(`${provider.name} requires interactive OAuth connect`);
     e.status = 400;
     throw e;
   }
-  clearProviderToken(providerId);
+
+  const hasConfig = Boolean(getStaticProviderApiKey(provider) || provider.auth_type === 'none');
+  if (!hasConfig) {
+    const e = new Error(provider.setup_hint || `${provider.name} is not configured`);
+    e.status = 400;
+    throw e;
+  }
+
+  setProviderEnabled(providerId, true);
 }
 
 module.exports = {
@@ -865,4 +895,5 @@ module.exports = {
   getProviderAuthorization,
   getProviderAccessToken,
   disconnectProvider,
+  connectProvider,
 };

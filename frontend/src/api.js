@@ -50,6 +50,20 @@ export const api = {
   },
 
   /**
+   * Delete a specific conversation.
+   */
+  async deleteConversation(conversationId) {
+    const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || 'Failed to delete conversation');
+    }
+    return response.json();
+  },
+
+  /**
    * Send a message in a conversation.
    */
   async sendMessage(conversationId, content) {
@@ -190,6 +204,26 @@ export const api = {
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       throw new Error((data && data.detail) || `Failed to disconnect ${provider}`);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Connect or re-enable provider.
+   */
+  async connectOAuth(provider) {
+    const response = await fetch(`${API_BASE}/api/auth/${provider}/connect`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || `Failed to connect ${provider}`);
     }
 
     return response.json();
