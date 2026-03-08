@@ -34,10 +34,10 @@ function getLabelForModel(model, labelToModel) {
   return entry ? entry[0] : null;
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
+export default function Stage2({ rankings, labelToModel, aggregateRankings, failures = [] }) {
   const [activeTab, setActiveTab] = useState(0);
 
-  if (!rankings || rankings.length === 0) {
+  if ((!rankings || rankings.length === 0) && (!failures || failures.length === 0)) {
     return null;
   }
 
@@ -63,44 +63,50 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
         </div>
       )}
 
-      <div className="tabs">
-        {rankings.map((rank, index) => (
-          <button
-            key={index}
-            className={`tab ${activeTab === index ? 'active' : ''}`}
-            onClick={() => setActiveTab(index)}
-          >
-            {rank.model.split('/')[1] || rank.model}
-          </button>
-        ))}
-      </div>
-
-      <div className="tab-content">
-        <div className="ranking-model">
-          {rankings[activeTab].model}
-        </div>
-        <div className="ranking-content markdown-content">
-          <ReactMarkdown>
-            {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
-          </ReactMarkdown>
-        </div>
-
-        {rankings[activeTab].parsed_ranking &&
-         rankings[activeTab].parsed_ranking.length > 0 && (
-          <div className="parsed-ranking">
-            <strong>Mapped Final Ranking:</strong>
-            <ol>
-              {rankings[activeTab].parsed_ranking.map((label, i) => (
-                <li key={i}>
-                  {labelToModel && labelToModel[label]
-                    ? `${label} -> ${getModelShortName(labelToModel[label])}`
-                    : label}
-                </li>
-              ))}
-            </ol>
+      {rankings && rankings.length > 0 ? (
+        <>
+          <div className="tabs">
+            {rankings.map((rank, index) => (
+              <button
+                key={index}
+                className={`tab ${activeTab === index ? 'active' : ''}`}
+                onClick={() => setActiveTab(index)}
+              >
+                {rank.model.split('/')[1] || rank.model}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+
+          <div className="tab-content">
+            <div className="ranking-model">
+              {rankings[activeTab].model}
+            </div>
+            <div className="ranking-content markdown-content">
+              <ReactMarkdown>
+                {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
+              </ReactMarkdown>
+            </div>
+
+            {rankings[activeTab].parsed_ranking &&
+             rankings[activeTab].parsed_ranking.length > 0 && (
+              <div className="parsed-ranking">
+                <strong>Mapped Final Ranking:</strong>
+                <ol>
+                  {rankings[activeTab].parsed_ranking.map((label, i) => (
+                    <li key={i}>
+                      {labelToModel && labelToModel[label]
+                        ? `${label} -> ${getModelShortName(labelToModel[label])}`
+                        : label}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="stage-description">No Stage 2 rankings were returned.</p>
+      )}
 
       {aggregateRankings && aggregateRankings.length > 0 && (
         <div className="aggregate-rankings">
@@ -125,6 +131,20 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
                 <span className="rank-count">
                   ({agg.rankings_count} votes)
                 </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {failures && failures.length > 0 && (
+        <div className="stage-failures">
+          <h4>Skipped / Failed Rankers</h4>
+          <div className="failure-list">
+            {failures.map((failure, index) => (
+              <div key={index} className="failure-item">
+                <span className="failure-model">{getModelShortName(failure.model)}</span>
+                <span className="failure-error">{failure.error}</span>
               </div>
             ))}
           </div>

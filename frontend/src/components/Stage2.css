@@ -183,3 +183,46 @@
   color: #999;
   font-size: 12px;
 }
+
+.stage-failures {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 2px solid #e0e0e0;
+}
+
+.stage-failures h4 {
+  margin: 0 0 12px 0;
+  color: #b42318;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.failure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.failure-item {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  background: #fff5f4;
+  border: 1px solid #f3c7c2;
+  border-radius: 6px;
+}
+
+.failure-model {
+  min-width: 160px;
+  color: #7a271a;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.failure-error {
+  color: #7a271a;
+  font-size: 13px;
+  line-height: 1.4;
+}

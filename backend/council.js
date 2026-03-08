@@ -29,23 +29,30 @@ function pickChairmanModel(models) {
 async function stage1CollectResponses(userQuery) {
   const councilModels = getConnectedCouncilModels();
   if (councilModels.length === 0) {
-    return [];
+    return [[], []];
   }
 
   const messages = [{ role: 'user', content: userQuery }];
   const responses = await queryModelsParallel(councilModels, messages);
 
   const stage1Results = [];
-  for (const [model, response] of Object.entries(responses)) {
-    if (response !== null) {
+  const stage1Failures = [];
+  for (const [model, result] of Object.entries(responses)) {
+    if (result && result.response !== null) {
       stage1Results.push({
         model,
-        response: response.content || '',
+        response: result.response.content || '',
       });
+      continue;
     }
+
+    stage1Failures.push({
+      model,
+      error: (result && result.error) || 'Unknown error',
+    });
   }
 
-  return stage1Results;
+  return [stage1Results, stage1Failures];
 }
 
 /**
@@ -62,7 +69,7 @@ async function stage2CollectRankings(userQuery, stage1Results) {
   });
 
   if (rankingModels.length === 0) {
-    return [[], labelToModel];
+    return [[], labelToModel, []];
   }
 
   const responsesText = labels
@@ -104,19 +111,26 @@ Now provide your evaluation and ranking:`;
   const responses = await queryModelsParallel(rankingModels, messages);
 
   const stage2Results = [];
-  for (const [model, response] of Object.entries(responses)) {
-    if (response !== null) {
-      const fullText = response.content || '';
+  const stage2Failures = [];
+  for (const [model, result] of Object.entries(responses)) {
+    if (result && result.response !== null) {
+      const fullText = result.response.content || '';
       const parsed = parseRankingFromText(fullText);
       stage2Results.push({
         model,
         ranking: fullText,
         parsed_ranking: parsed,
       });
+      continue;
     }
+
+    stage2Failures.push({
+      model,
+      error: (result && result.error) || 'Unknown error',
+    });
   }
 
-  return [stage2Results, labelToModel];
+  return [stage2Results, labelToModel, stage2Failures];
 }
 
 /**
@@ -289,24 +303,26 @@ Title:`;
  * Returns [stage1Results, stage2Results, stage3Result, metadata].
  */
 async function runFullCouncil(userQuery) {
-  const stage1Results = await stage1CollectResponses(userQuery);
+  const [stage1Results, stage1Failures] = await stage1CollectResponses(userQuery);
 
   if (stage1Results.length === 0) {
     return [
       [],
       [],
       { model: 'error', response: 'All connected models failed to respond. Please try again.' },
-      {},
+      { stage1_failures: stage1Failures, stage2_failures: [] },
     ];
   }
 
-  const [stage2Results, labelToModel] = await stage2CollectRankings(userQuery, stage1Results);
+  const [stage2Results, labelToModel, stage2Failures] = await stage2CollectRankings(userQuery, stage1Results);
   const aggregateRankings = calculateAggregateRankings(stage2Results, labelToModel);
   const stage3Result = await stage3SynthesizeFinal(userQuery, stage1Results, stage2Results);
 
   const metadata = {
     label_to_model: labelToModel,
     aggregate_rankings: aggregateRankings,
+    stage1_failures: stage1Failures,
+    stage2_failures: stage2Failures,
   };
 
   return [stage1Results, stage2Results, stage3Result, metadata];

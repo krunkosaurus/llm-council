@@ -2,7 +2,7 @@
 
 ![llmcouncil](header.jpg)
 
-> **Note:** This is a Node.js conversion of the original [llm-council](https://github.com/karpathy/llm-council) by [Andrej Karpathy](https://github.com/karpathy).
+> **Note:** This is a Node.js conversion of the original [llm-council](https://github.com/karpathy/llm-council) by [Andrej Karpathy](https://github.com/karpathy). OpenAI & Claude 0auth support has been added as well as Manus AI and local LLM's.
 
 This repo runs an "LLM Council" flow with provider-backed model selection:
 - ChatGPT (`openai/*`) via OAuth
@@ -51,8 +51,8 @@ MANUS_DEFAULT_MODEL=manus/manus-1.6
 MANUS_API_KEY=
 # Optional: defaults to https://api.manus.ai
 # MANUS_API_URL=https://api.manus.ai
-# Optional: default is 45000 (45s) so a slow Manus task does not stall the full council too long
-# MANUS_TASK_TIMEOUT_MS=45000
+# Optional: default is 300000 (5m); the council waits for Manus to finish or error before skipping it
+# MANUS_TASK_TIMEOUT_MS=300000
 
 # Optional advanced overrides (defaults already match opencode behavior)
 # OPENAI_OAUTH_ISSUER=https://auth.openai.com

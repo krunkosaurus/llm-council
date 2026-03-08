@@ -37,7 +37,7 @@ const ANTHROPIC_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01';
 const ANTHROPIC_MAX_TOKENS = Number(process.env.ANTHROPIC_MAX_TOKENS || '2048');
 
 const MANUS_API_URL = process.env.MANUS_API_URL || 'https://api.manus.ai';
-const MANUS_TASK_TIMEOUT_MS = Number(process.env.MANUS_TASK_TIMEOUT_MS || '45000');
+const MANUS_TASK_TIMEOUT_MS = Number(process.env.MANUS_TASK_TIMEOUT_MS || '300000');
 
 const BUILTIN_PROVIDER_DEFINITIONS = {
   openai: {

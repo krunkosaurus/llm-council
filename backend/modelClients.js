@@ -477,8 +477,7 @@ async function readOpenAIStream(response) {
 async function queryViaOpenAIOAuth(model, messages, timeout = 120000) {
   const auth = await getProviderAuthorization('openai');
   if (!auth || !auth.accessToken) {
-    console.error(`OpenAI OAuth token unavailable; skipping model ${model}`);
-    return null;
+    throw new Error('OpenAI OAuth token unavailable');
   }
 
   const instructions = await getOpenAIInstructions(model);
@@ -515,8 +514,7 @@ async function queryViaOpenAIOAuth(model, messages, timeout = 120000) {
       reasoning_details: null,
     };
   } catch (e) {
-    console.error(`Error querying OpenAI OAuth model ${model}: ${e.message}`);
-    return null;
+    throw new Error(`OpenAI OAuth request failed: ${e.message}`);
   }
 }
 
@@ -562,8 +560,7 @@ function parseAnthropicContent(contentBlocks) {
 async function queryViaAnthropicOAuth(model, messages, timeout = 120000) {
   const auth = await getProviderAuthorization('anthropic');
   if (!auth || !auth.accessToken) {
-    console.error(`Claude OAuth token unavailable; skipping model ${model}`);
-    return null;
+    throw new Error('Claude OAuth token unavailable');
   }
 
   const payload = toAnthropicPayload(model, messages);
@@ -599,8 +596,7 @@ async function queryViaAnthropicOAuth(model, messages, timeout = 120000) {
       reasoning_details: null,
     };
   } catch (e) {
-    console.error(`Error querying Claude OAuth model ${model}: ${e.message}`);
-    return null;
+    throw new Error(`Claude OAuth request failed: ${e.message}`);
   }
 }
 
@@ -608,8 +604,7 @@ async function queryViaOpenAICompatibleProvider(providerId, model, messages, tim
   const provider = PROVIDER_DEFINITIONS[providerId];
   const auth = await getProviderAuthorization(providerId);
   if (!provider || !auth || !auth.baseURL) {
-    console.error(`Configured provider ${providerId} is unavailable; skipping model ${model}`);
-    return null;
+    throw new Error(`Configured provider ${providerId} is unavailable`);
   }
 
   const headers = {
@@ -649,8 +644,7 @@ async function queryViaOpenAICompatibleProvider(providerId, model, messages, tim
       reasoning_details: null,
     };
   } catch (error) {
-    console.error(`Error querying OpenAI-compatible provider ${providerId} (${model}): ${error.message}`);
-    return null;
+    throw new Error(`${provider.name || providerId} request failed: ${error.message}`);
   }
 }
 
@@ -743,8 +737,7 @@ async function pollManusTask(auth, taskId, timeout) {
 async function queryViaManus(model, messages, timeout = MANUS_TASK_TIMEOUT_MS) {
   const auth = await getProviderAuthorization('manus');
   if (!auth || !auth.apiKey || !auth.baseURL) {
-    console.error(`Manus API key unavailable; skipping model ${model}`);
-    return null;
+    throw new Error('Manus API key unavailable');
   }
 
   const prompt = buildRoleTranscript(messages);
@@ -779,8 +772,7 @@ async function queryViaManus(model, messages, timeout = MANUS_TASK_TIMEOUT_MS) {
       reasoning_details: null,
     };
   } catch (error) {
-    console.error(`Error querying Manus model ${model}: ${error.message}`);
-    return null;
+    throw new Error(`Manus request failed: ${error.message}`);
   }
 }
 
@@ -788,12 +780,11 @@ async function queryViaManus(model, messages, timeout = MANUS_TASK_TIMEOUT_MS) {
  * Query a single model via the configured provider transport.
  * Unsupported providers or missing credentials return null.
  */
-async function queryModel(model, messages, timeout = 120000) {
+async function queryModelOrThrow(model, messages, timeout = 120000) {
   const provider = inferProviderFromModel(model);
 
   if (!provider) {
-    console.error(`Unsupported model provider for ${model}`);
-    return null;
+    throw new Error(`Unsupported model provider for ${model}`);
   }
 
   if (provider === 'openai') {
@@ -812,16 +803,34 @@ async function queryModel(model, messages, timeout = 120000) {
     return queryViaOpenAICompatibleProvider(provider, model, messages, timeout);
   }
 
-  console.error(`Unsupported transport for ${model}`);
-  return null;
+  throw new Error(`Unsupported transport for ${model}`);
+}
+
+async function queryModel(model, messages, timeout = 120000) {
+  try {
+    return await queryModelOrThrow(model, messages, timeout);
+  } catch (error) {
+    console.error(`Error querying model ${model}: ${error.message}`);
+    return null;
+  }
+}
+
+async function queryModelDetailed(model, messages, timeout = 120000) {
+  try {
+    const response = await queryModelOrThrow(model, messages, timeout);
+    return { response, error: null };
+  } catch (error) {
+    console.error(`Error querying model ${model}: ${error.message}`);
+    return { response: null, error: error.message };
+  }
 }
 
 /**
  * Query multiple models in parallel.
- * Returns object mapping model ID to response (or null).
+ * Returns object mapping model ID to { response, error }.
  */
 async function queryModelsParallel(models, messages) {
-  const tasks = models.map((model) => queryModel(model, messages));
+  const tasks = models.map((model) => queryModelDetailed(model, messages));
   const responses = await Promise.all(tasks);
 
   const result = {};
@@ -831,4 +840,4 @@ async function queryModelsParallel(models, messages) {
   return result;
 }
 
-module.exports = { queryModel, queryModelsParallel };
+module.exports = { queryModel, queryModelDetailed, queryModelsParallel };

@@ -243,16 +243,23 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
 
     // Stage 1
     sendEvent({ type: 'stage1_start' });
-    const stage1Results = await stage1CollectResponses(content);
+    const [stage1Results, stage1Failures] = await stage1CollectResponses(content);
     storage.updateLatestAssistantMessage(conversationId, {
       stage1: stage1Results,
+      metadata: {
+        stage1_failures: stage1Failures,
+      },
       loading: {
         stage1: false,
         stage2: false,
         stage3: false,
       },
     });
-    sendEvent({ type: 'stage1_complete', data: stage1Results });
+    sendEvent({
+      type: 'stage1_complete',
+      data: stage1Results,
+      metadata: { stage1_failures: stage1Failures },
+    });
 
     // Stage 2
     storage.updateLatestAssistantMessage(conversationId, {
@@ -263,9 +270,14 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
       },
     });
     sendEvent({ type: 'stage2_start' });
-    const [stage2Results, labelToModel] = await stage2CollectRankings(content, stage1Results);
+    const [stage2Results, labelToModel, stage2Failures] = await stage2CollectRankings(content, stage1Results);
     const aggregateRankings = calculateAggregateRankings(stage2Results, labelToModel);
-    const metadata = { label_to_model: labelToModel, aggregate_rankings: aggregateRankings };
+    const metadata = {
+      label_to_model: labelToModel,
+      aggregate_rankings: aggregateRankings,
+      stage1_failures: stage1Failures,
+      stage2_failures: stage2Failures,
+    };
     storage.updateLatestAssistantMessage(conversationId, {
       stage2: stage2Results,
       metadata,

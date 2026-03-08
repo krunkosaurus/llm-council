@@ -20,7 +20,7 @@ This codebase supports mixed provider transports:
 - `OPENAI_DEFAULT_MODEL` defaults to `openai/gpt-5.4`.
 - `ANTHROPIC_DEFAULT_MODEL` defaults to `anthropic/claude-sonnet-4-6`.
 - `MANUS_DEFAULT_MODEL` defaults to `manus/manus-1.6`.
-- `MANUS_TASK_TIMEOUT_MS` defaults to `45000` to keep slow Manus polling from stalling the council too long.
+- `MANUS_TASK_TIMEOUT_MS` defaults to `300000`, so Manus can finish longer agent-style tasks before the council skips it.
 - Merges built-in providers with optional OpenAI-compatible entries from `providers.json`.
 
 ### `backend/oauth.js`
