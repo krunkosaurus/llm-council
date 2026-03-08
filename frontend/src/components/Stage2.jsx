@@ -19,10 +19,19 @@ function deAnonymizeText(text, labelToModel) {
     const modelShortName = getModelShortName(model);
     result = result.replace(
       new RegExp(escapeRegExp(label), 'g'),
-      `${label} (**${modelShortName}**)`
+      `${label} (${modelShortName})`
     );
   });
   return result;
+}
+
+function getLabelForModel(model, labelToModel) {
+  if (!labelToModel) {
+    return null;
+  }
+
+  const entry = Object.entries(labelToModel).find(([, mappedModel]) => mappedModel === model);
+  return entry ? entry[0] : null;
 }
 
 export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
@@ -79,7 +88,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
         {rankings[activeTab].parsed_ranking &&
          rankings[activeTab].parsed_ranking.length > 0 && (
           <div className="parsed-ranking">
-            <strong>Extracted Ranking:</strong>
+            <strong>Mapped Final Ranking:</strong>
             <ol>
               {rankings[activeTab].parsed_ranking.map((label, i) => (
                 <li key={i}>
@@ -104,7 +113,11 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
               <div key={index} className="aggregate-item">
                 <span className="rank-position">#{index + 1}</span>
                 <span className="rank-model">
-                  {getModelShortName(agg.model)}
+                  {(() => {
+                    const label = getLabelForModel(agg.model, labelToModel);
+                    const modelName = getModelShortName(agg.model);
+                    return label ? `${label} -> ${modelName}` : modelName;
+                  })()}
                 </span>
                 <span className="rank-score">
                   Avg: {agg.average_rank.toFixed(2)}

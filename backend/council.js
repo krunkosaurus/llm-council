@@ -178,20 +178,32 @@ Provide a clear, well-reasoned final answer that represents the council's collec
  * Returns list of response labels in ranked order.
  */
 function parseRankingFromText(rankingText) {
-  if (rankingText.includes('FINAL RANKING:')) {
-    const parts = rankingText.split('FINAL RANKING:');
-    if (parts.length >= 2) {
-      const rankingSection = parts[1];
-      const numberedMatches = rankingSection.match(/\d+\.\s*Response [A-Z]/g);
-      if (numberedMatches) {
-        return numberedMatches.map((m) => m.match(/Response [A-Z]/)[0]);
-      }
-      const matches = rankingSection.match(/Response [A-Z]/g);
-      return matches || [];
+  if (typeof rankingText !== 'string' || !rankingText.trim()) {
+    return [];
+  }
+
+  const upperText = rankingText.toUpperCase();
+  const finalRankingIndex = upperText.lastIndexOf('FINAL RANKING:');
+  if (finalRankingIndex === -1) {
+    return [];
+  }
+
+  const rankingSection = rankingText.slice(finalRankingIndex + 'FINAL RANKING:'.length);
+  const labels = [];
+
+  for (const line of rankingSection.split('\n')) {
+    const match = line.match(/^\s*\d+\.\s*(Response [A-Z])\b/i);
+    if (match) {
+      labels.push(match[1].replace(/\s+/g, ' ').trim());
+      continue;
+    }
+
+    if (labels.length > 0 && line.trim()) {
+      break;
     }
   }
-  const matches = rankingText.match(/Response [A-Z]/g);
-  return matches || [];
+
+  return labels;
 }
 
 /**

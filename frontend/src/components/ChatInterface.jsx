@@ -5,6 +5,19 @@ import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import './ChatInterface.css';
 
+function shouldShowRecoveryLoading(conversation) {
+  if (!conversation || !Array.isArray(conversation.messages) || conversation.messages.length === 0) {
+    return false;
+  }
+
+  const lastMessage = conversation.messages[conversation.messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'user') {
+    return false;
+  }
+
+  return !conversation.messages.some((message) => message && message.role === 'assistant');
+}
+
 export default function ChatInterface({
   conversation,
   onSendMessage,
@@ -108,6 +121,13 @@ export default function ChatInterface({
               )}
             </div>
           ))
+        )}
+
+        {shouldShowRecoveryLoading(conversation) && (
+          <div className="recovery-loading">
+            <div className="spinner"></div>
+            <span>This request is still processing or was interrupted during refresh. The page will keep checking for updates.</span>
+          </div>
         )}
 
         {isLoading && (

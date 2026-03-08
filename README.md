@@ -51,6 +51,8 @@ MANUS_DEFAULT_MODEL=manus/manus-1.6
 MANUS_API_KEY=
 # Optional: defaults to https://api.manus.ai
 # MANUS_API_URL=https://api.manus.ai
+# Optional: default is 45000 (45s) so a slow Manus task does not stall the full council too long
+# MANUS_TASK_TIMEOUT_MS=45000
 
 # Optional advanced overrides (defaults already match opencode behavior)
 # OPENAI_OAUTH_ISSUER=https://auth.openai.com
@@ -80,9 +82,7 @@ Optional `providers.json` in the project root can add third-party OpenAI-compati
       "models": {
         "qwen3.5-35b-a3b-mlx-lm": {
           "name": "qwen3.5-35b-a3b-mlx-lm",
-          "requestBody": {
-            "enable_thinking": false
-          }
+          "stripThinkBlocks": true
         }
       }
     }
@@ -94,6 +94,10 @@ Optional `providers.json` in the project root can add third-party OpenAI-compati
 For third-party OpenAI-compatible providers, optional request overrides can be set at either level:
 - `provider.<id>.options.requestBody`: applied to every request for that provider
 - `provider.<id>.models.<model>.requestBody`: applied only for that model
+- `provider.<id>.options.promptSuffix`: appended to the final user message for that provider
+- `provider.<id>.models.<model>.promptSuffix`: appended to the final user message only for that model
+- `provider.<id>.options.stripThinkBlocks`: removes visible `<think>...</think>` sections from responses
+- `provider.<id>.models.<model>.stripThinkBlocks`: same, but only for that model
 
 Model-level keys override provider-level keys. These fields are merged into the JSON body sent to `/chat/completions`.
 

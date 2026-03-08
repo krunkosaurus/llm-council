@@ -4,6 +4,35 @@ import ChatInterface from './components/ChatInterface';
 import { api } from './api';
 import './App.css';
 
+const ACTIVE_CONVERSATION_STORAGE_KEY = 'llm-council.currentConversationId';
+
+function conversationHasPendingAssistant(conversation) {
+  if (!conversation || !Array.isArray(conversation.messages)) {
+    return false;
+  }
+
+  return conversation.messages.some(
+    (message) =>
+      message &&
+      message.role === 'assistant' &&
+      message.loading &&
+      (message.loading.stage1 || message.loading.stage2 || message.loading.stage3)
+  );
+}
+
+function conversationLooksInterrupted(conversation) {
+  if (!conversation || !Array.isArray(conversation.messages) || conversation.messages.length === 0) {
+    return false;
+  }
+
+  const lastMessage = conversation.messages[conversation.messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'user') {
+    return false;
+  }
+
+  return !conversation.messages.some((message) => message && message.role === 'assistant');
+}
+
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
@@ -26,6 +55,15 @@ function App() {
         ]);
         setConversations(convs);
         setAuthProviders(providers);
+
+        const storedConversationId = window.localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY);
+        const initialConversationId = convs.some((conv) => conv.id === storedConversationId)
+          ? storedConversationId
+          : convs[0]?.id || null;
+
+        if (initialConversationId) {
+          setCurrentConversationId(initialConversationId);
+        }
       } catch (error) {
         console.error('Failed to load initial app data:', error);
       }
@@ -40,6 +78,41 @@ function App() {
       loadConversation(currentConversationId);
     }
   }, [currentConversationId]);
+
+  useEffect(() => {
+    if (currentConversationId) {
+      window.localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, currentConversationId);
+    } else {
+      window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
+    }
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    if (
+      !currentConversationId ||
+      (!conversationHasPendingAssistant(currentConversation) && !conversationLooksInterrupted(currentConversation))
+    ) {
+      return undefined;
+    }
+
+    setIsLoading(true);
+
+    const poll = window.setInterval(() => {
+      loadConversation(currentConversationId);
+      loadConversations();
+    }, 2000);
+
+    return () => window.clearInterval(poll);
+  }, [currentConversationId, currentConversation]);
+
+  useEffect(() => {
+    if (
+      !conversationHasPendingAssistant(currentConversation) &&
+      !conversationLooksInterrupted(currentConversation)
+    ) {
+      setIsLoading(false);
+    }
+  }, [currentConversation]);
 
   const loadConversations = async () => {
     try {
@@ -237,7 +310,7 @@ function App() {
         stage3: null,
         metadata: null,
         loading: {
-          stage1: false,
+          stage1: true,
           stage2: false,
           stage3: false,
         },

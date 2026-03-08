@@ -10,9 +10,7 @@
       "models": {
         "qwen3.5-35b-a3b-mlx-lm": {
           "name": "qwen3.5-35b-a3b-mlx-lm",
-          "requestBody": {
-            "enable_thinking": false
-          }
+          "stripThinkBlocks": true
         }
       }
     }

@@ -3,6 +3,7 @@ const {
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
   ANTHROPIC_MAX_TOKENS,
+  MANUS_TASK_TIMEOUT_MS,
   PROVIDER_DEFINITIONS,
 } = require('./config');
 const { getProviderAuthorization } = require('./oauth');
@@ -126,6 +127,75 @@ function getOpenAICompatibleRequestBody(providerId, model) {
     ...(provider.request_body || {}),
     ...(modelDefinition && modelDefinition.request_body ? modelDefinition.request_body : {}),
   };
+}
+
+function getOpenAICompatiblePromptSuffix(providerId, model) {
+  const provider = PROVIDER_DEFINITIONS[providerId];
+  if (!provider) {
+    return '';
+  }
+
+  const modelDefinition = Array.isArray(provider.models)
+    ? provider.models.find((candidate) => candidate && candidate.id === model)
+    : null;
+
+  const modelSuffix = modelDefinition && typeof modelDefinition.prompt_suffix === 'string'
+    ? modelDefinition.prompt_suffix
+    : '';
+  if (modelSuffix) {
+    return modelSuffix;
+  }
+
+  return typeof provider.prompt_suffix === 'string' ? provider.prompt_suffix : '';
+}
+
+function shouldStripThinkBlocks(providerId, model) {
+  const provider = PROVIDER_DEFINITIONS[providerId];
+  if (!provider) {
+    return false;
+  }
+
+  const modelDefinition = Array.isArray(provider.models)
+    ? provider.models.find((candidate) => candidate && candidate.id === model)
+    : null;
+
+  if (modelDefinition && typeof modelDefinition.strip_think_blocks === 'boolean') {
+    return modelDefinition.strip_think_blocks;
+  }
+
+  return Boolean(provider.strip_think_blocks);
+}
+
+function applyPromptSuffixToMessages(messages, promptSuffix) {
+  if (!promptSuffix) {
+    return messages;
+  }
+
+  const plainMessages = buildPlainMessages(messages);
+  for (let index = plainMessages.length - 1; index >= 0; index -= 1) {
+    const message = plainMessages[index];
+    if (message.role === 'user') {
+      return plainMessages.map((candidate, candidateIndex) =>
+        candidateIndex === index
+          ? { ...candidate, content: `${candidate.content}${promptSuffix}` }
+          : candidate
+      );
+    }
+  }
+
+  return plainMessages;
+}
+
+function stripThinkBlocks(text) {
+  if (typeof text !== 'string' || !text) {
+    return text;
+  }
+
+  const stripped = text
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '')
+    .replace(/^\s+|\s+$/g, '');
+
+  return stripped || text.trim();
 }
 
 function sleep(ms) {
@@ -552,8 +622,11 @@ async function queryViaOpenAICompatibleProvider(providerId, model, messages, tim
   }
 
   try {
+    const promptSuffix = getOpenAICompatiblePromptSuffix(providerId, model);
     const payload = {
-      ...buildOpenAICompatiblePayload(model, messages),
+      model: normalizeModelForProvider(model, inferProviderFromModel(model)),
+      messages: applyPromptSuffixToMessages(messages, promptSuffix),
+      stream: false,
       ...getOpenAICompatibleRequestBody(providerId, model),
     };
 
@@ -570,8 +643,9 @@ async function queryViaOpenAICompatibleProvider(providerId, model, messages, tim
     }
 
     const data = await response.json();
+    const content = parseChatCompletionResponse(data);
     return {
-      content: parseChatCompletionResponse(data),
+      content: shouldStripThinkBlocks(providerId, model) ? stripThinkBlocks(content) : content,
       reasoning_details: null,
     };
   } catch (error) {
@@ -585,7 +659,18 @@ function parseManusOutputText(output) {
     return null;
   }
 
-  return output
+  const assistantMessages = output.filter(
+    (item) =>
+      item &&
+      typeof item === 'object' &&
+      item.role === 'assistant' &&
+      Array.isArray(item.content) &&
+      item.content.length > 0
+  );
+
+  const source = assistantMessages.length > 0 ? assistantMessages : output;
+
+  return source
     .map((item) => {
       if (!item || typeof item !== 'object') {
         return '';
@@ -610,6 +695,7 @@ function parseManusOutputText(output) {
 
 async function pollManusTask(auth, taskId, timeout) {
   const startedAt = Date.now();
+  let notFoundCount = 0;
   const headers = {
     'Content-Type': 'application/json',
     API_KEY: auth.apiKey,
@@ -624,9 +710,15 @@ async function pollManusTask(auth, taskId, timeout) {
 
     if (!response.ok) {
       const text = await response.text();
+      if (response.status === 404 && /task not found/i.test(text) && notFoundCount < 5) {
+        notFoundCount += 1;
+        await sleep(1000);
+        continue;
+      }
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
 
+    notFoundCount = 0;
     const task = await response.json();
     const status = typeof task.status === 'string' ? task.status.toLowerCase() : '';
 
@@ -648,7 +740,7 @@ async function pollManusTask(auth, taskId, timeout) {
   throw new Error('Timed out waiting for Manus task completion');
 }
 
-async function queryViaManus(model, messages, timeout = 120000) {
+async function queryViaManus(model, messages, timeout = MANUS_TASK_TIMEOUT_MS) {
   const auth = await getProviderAuthorization('manus');
   if (!auth || !auth.apiKey || !auth.baseURL) {
     console.error(`Manus API key unavailable; skipping model ${model}`);

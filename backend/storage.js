@@ -77,7 +77,17 @@ function addUserMessage(conversationId, content) {
   saveConversation(conversation);
 }
 
-function addAssistantMessage(conversationId, stage1, stage2, stage3) {
+function getLatestAssistantMessage(conversation) {
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    if (conversation.messages[index] && conversation.messages[index].role === 'assistant') {
+      return { message: conversation.messages[index], index };
+    }
+  }
+
+  return null;
+}
+
+function startAssistantMessage(conversationId) {
   const conversation = getConversation(conversationId);
   if (conversation === null) {
     throw new Error(`Conversation ${conversationId} not found`);
@@ -85,11 +95,54 @@ function addAssistantMessage(conversationId, stage1, stage2, stage3) {
 
   conversation.messages.push({
     role: 'assistant',
+    stage1: null,
+    stage2: null,
+    stage3: null,
+    metadata: null,
+    loading: {
+      stage1: true,
+      stage2: false,
+      stage3: false,
+    },
+  });
+  saveConversation(conversation);
+}
+
+function updateLatestAssistantMessage(conversationId, patch) {
+  const conversation = getConversation(conversationId);
+  if (conversation === null) {
+    throw new Error(`Conversation ${conversationId} not found`);
+  }
+
+  const latest = getLatestAssistantMessage(conversation);
+  if (!latest) {
+    throw new Error(`Conversation ${conversationId} has no assistant message to update`);
+  }
+
+  conversation.messages[latest.index] = {
+    ...latest.message,
+    ...patch,
+    loading: {
+      ...(latest.message.loading || {}),
+      ...((patch && patch.loading) || {}),
+    },
+  };
+
+  saveConversation(conversation);
+}
+
+function completeAssistantMessage(conversationId, stage1, stage2, stage3, metadata = null) {
+  updateLatestAssistantMessage(conversationId, {
     stage1,
     stage2,
     stage3,
+    metadata,
+    loading: {
+      stage1: false,
+      stage2: false,
+      stage3: false,
+    },
   });
-  saveConversation(conversation);
 }
 
 function updateConversationTitle(conversationId, title) {
@@ -109,6 +162,8 @@ module.exports = {
   saveConversation,
   listConversations,
   addUserMessage,
-  addAssistantMessage,
+  startAssistantMessage,
+  updateLatestAssistantMessage,
+  completeAssistantMessage,
   updateConversationTitle,
 };

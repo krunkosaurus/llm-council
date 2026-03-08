@@ -37,6 +37,7 @@ const ANTHROPIC_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01';
 const ANTHROPIC_MAX_TOKENS = Number(process.env.ANTHROPIC_MAX_TOKENS || '2048');
 
 const MANUS_API_URL = process.env.MANUS_API_URL || 'https://api.manus.ai';
+const MANUS_TASK_TIMEOUT_MS = Number(process.env.MANUS_TASK_TIMEOUT_MS || '45000');
 
 const BUILTIN_PROVIDER_DEFINITIONS = {
   openai: {
@@ -127,6 +128,23 @@ function getConfiguredRequestBody(config) {
   return sanitizeRequestBody(config.requestBody || config.request_body);
 }
 
+function getConfiguredPromptSuffix(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    return '';
+  }
+
+  const promptSuffix = config.promptSuffix || config.prompt_suffix;
+  return typeof promptSuffix === 'string' ? promptSuffix : '';
+}
+
+function getConfiguredStripThinkBlocks(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    return false;
+  }
+
+  return Boolean(config.stripThinkBlocks || config.strip_think_blocks);
+}
+
 function normalizeConfiguredModels(providerId, models) {
   if (!models || typeof models !== 'object' || Array.isArray(models)) {
     return [];
@@ -141,6 +159,8 @@ function normalizeConfiguredModels(providerId, models) {
           ? metadata.name.trim()
           : modelId,
       request_body: getConfiguredRequestBody(metadata),
+      prompt_suffix: getConfiguredPromptSuffix(metadata),
+      strip_think_blocks: getConfiguredStripThinkBlocks(metadata),
     }));
 }
 
@@ -186,6 +206,8 @@ function createOpenAICompatibleProviderDefinition(providerId, providerConfig, gl
     api_key_env: options && typeof options.apiKeyEnv === 'string' ? options.apiKeyEnv : null,
     headers: sanitizeHeaders(options && options.headers),
     request_body: getConfiguredRequestBody(options),
+    prompt_suffix: getConfiguredPromptSuffix(options),
+    strip_think_blocks: getConfiguredStripThinkBlocks(options),
     default_model:
       typeof globalDefaultModel === 'string' && globalDefaultModel.startsWith(`${providerId}/`)
         ? globalDefaultModel
@@ -274,4 +296,5 @@ module.exports = {
   ANTHROPIC_VERSION,
   ANTHROPIC_MAX_TOKENS,
   MANUS_API_URL,
+  MANUS_TASK_TIMEOUT_MS,
 };

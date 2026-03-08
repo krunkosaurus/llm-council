@@ -167,6 +167,7 @@ app.post('/api/conversations/:conversationId/message', async (req, res) => {
   const isFirstMessage = conversation.messages.length === 0;
 
   storage.addUserMessage(conversationId, content);
+  storage.startAssistantMessage(conversationId);
 
   if (isFirstMessage) {
     const title = await generateConversationTitle(content);
@@ -175,7 +176,7 @@ app.post('/api/conversations/:conversationId/message', async (req, res) => {
 
   const [stage1Results, stage2Results, stage3Result, metadata] = await runFullCouncil(content);
 
-  storage.addAssistantMessage(conversationId, stage1Results, stage2Results, stage3Result);
+  storage.completeAssistantMessage(conversationId, stage1Results, stage2Results, stage3Result, metadata);
 
   res.json({
     stage1: stage1Results,
@@ -208,14 +209,31 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
     res.flushHeaders();
   }
 
+  let streamClosed = false;
+  const markClosed = () => {
+    streamClosed = true;
+  };
+
+  req.on('close', markClosed);
+  res.on('close', markClosed);
+
   const sendEvent = (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (streamClosed || res.writableEnded || res.destroyed) {
+      return;
+    }
+
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch (_ignored) {
+      streamClosed = true;
+    }
   };
 
   res.write(': connected\n\n');
 
   try {
     storage.addUserMessage(conversationId, content);
+    storage.startAssistantMessage(conversationId);
 
     // Start title generation in parallel (don't await yet)
     let titlePromise = null;
@@ -226,21 +244,54 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
     // Stage 1
     sendEvent({ type: 'stage1_start' });
     const stage1Results = await stage1CollectResponses(content);
+    storage.updateLatestAssistantMessage(conversationId, {
+      stage1: stage1Results,
+      loading: {
+        stage1: false,
+        stage2: false,
+        stage3: false,
+      },
+    });
     sendEvent({ type: 'stage1_complete', data: stage1Results });
 
     // Stage 2
+    storage.updateLatestAssistantMessage(conversationId, {
+      loading: {
+        stage1: false,
+        stage2: true,
+        stage3: false,
+      },
+    });
     sendEvent({ type: 'stage2_start' });
     const [stage2Results, labelToModel] = await stage2CollectRankings(content, stage1Results);
     const aggregateRankings = calculateAggregateRankings(stage2Results, labelToModel);
+    const metadata = { label_to_model: labelToModel, aggregate_rankings: aggregateRankings };
+    storage.updateLatestAssistantMessage(conversationId, {
+      stage2: stage2Results,
+      metadata,
+      loading: {
+        stage1: false,
+        stage2: false,
+        stage3: false,
+      },
+    });
     sendEvent({
       type: 'stage2_complete',
       data: stage2Results,
-      metadata: { label_to_model: labelToModel, aggregate_rankings: aggregateRankings },
+      metadata,
     });
 
     // Stage 3
+    storage.updateLatestAssistantMessage(conversationId, {
+      loading: {
+        stage1: false,
+        stage2: false,
+        stage3: true,
+      },
+    });
     sendEvent({ type: 'stage3_start' });
     const stage3Result = await stage3SynthesizeFinal(content, stage1Results, stage2Results);
+    storage.completeAssistantMessage(conversationId, stage1Results, stage2Results, stage3Result, metadata);
     sendEvent({ type: 'stage3_complete', data: stage3Result });
 
     // Wait for title generation
@@ -250,16 +301,30 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
       sendEvent({ type: 'title_complete', data: { title } });
     }
 
-    // Save complete assistant message
-    storage.addAssistantMessage(conversationId, stage1Results, stage2Results, stage3Result);
-
     // Send completion event
     sendEvent({ type: 'complete' });
   } catch (e) {
+    try {
+      storage.updateLatestAssistantMessage(conversationId, {
+        stage3: {
+          model: 'error',
+          response: `Error: ${e.message}`,
+        },
+        loading: {
+          stage1: false,
+          stage2: false,
+          stage3: false,
+        },
+      });
+    } catch (_ignored) {
+      // Ignore storage update failures while already handling an error path.
+    }
     sendEvent({ type: 'error', message: e.message });
   }
 
-  res.end();
+  if (!streamClosed && !res.writableEnded && !res.destroyed) {
+    res.end();
+  }
 });
 
 const PORT = 8001;
