@@ -10,3 +10,6 @@ data/
 # Build output
 dist/
 frontend/.vite/
+
+# Local Codex/Claude working files
+.claude/
