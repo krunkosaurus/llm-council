@@ -330,6 +330,26 @@ function App() {
     }
   };
 
+  const handleRefreshProviderModels = async (providerId) => {
+    setProviderModelBusy(providerId);
+
+    try {
+      const result = await api.refreshProviderModels(providerId);
+      if (result && result.provider) {
+        setAuthProviders((prev) => ({
+          ...prev,
+          [providerId]: result.provider,
+        }));
+      } else {
+        await loadAuthProviders();
+      }
+    } catch (error) {
+      console.error(`Failed to refresh models for ${providerId}:`, error);
+    } finally {
+      setProviderModelBusy(null);
+    }
+  };
+
   const handleSendMessage = async (content) => {
     if (!currentConversationId || !currentConversation) return;
 
@@ -476,6 +496,7 @@ function App() {
         onConnectProvider={handleConnectProvider}
         onDisconnectProvider={handleDisconnectProvider}
         onProviderModelChange={handleProviderModelChange}
+        onRefreshProviderModels={handleRefreshProviderModels}
         pendingCodeOAuth={pendingCodeOAuth}
         pendingOAuthCode={pendingOAuthCode}
         oauthError={oauthError}

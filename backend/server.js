@@ -17,9 +17,18 @@ const {
   completeOAuthCode,
   connectProvider,
   disconnectProvider,
+  getProviderAuthorization,
 } = require('./oauth');
 const { setSelectedProviderModel } = require('./providerSettings');
-const { FRONTEND_BASE_URL } = require('./config');
+const {
+  FRONTEND_BASE_URL,
+  PROVIDER_DEFINITIONS,
+  OPENROUTER_MODEL_CACHE_TTL_MS,
+} = require('./config');
+const {
+  clearProviderDynamicModels,
+  getProviderDynamicModels,
+} = require('./dynamicModels');
 
 const app = express();
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://localhost:3000'];
@@ -96,8 +105,8 @@ app.get('/', (req, res) => {
 });
 
 // OAuth provider status
-app.get('/api/auth/providers', (req, res) => {
-  res.json(listProviderStatuses());
+app.get('/api/auth/providers', async (req, res) => {
+  res.json(await listProviderStatuses());
 });
 
 // Start OAuth flow
@@ -158,7 +167,7 @@ app.post('/api/auth/:provider/connect', (req, res) => {
 });
 
 // Update selected model for provider
-app.post('/api/auth/:provider/model', (req, res) => {
+app.post('/api/auth/:provider/model', async (req, res) => {
   try {
     const providerId = req.params.provider;
     const modelId = req.body && req.body.model;
@@ -167,14 +176,49 @@ app.post('/api/auth/:provider/model', (req, res) => {
       return res.status(400).json({ detail: 'Missing model' });
     }
 
-    setSelectedProviderModel(providerId, modelId);
-    const providers = listProviderStatuses();
+    await setSelectedProviderModel(providerId, modelId, getProviderAuthorization);
+    const providers = await listProviderStatuses();
     res.json({
       ok: true,
       provider: providers[providerId],
     });
   } catch (e) {
     res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
+// Refresh dynamic models for provider
+app.post('/api/auth/:provider/models/refresh', async (req, res) => {
+  try {
+    const providerId = req.params.provider;
+    const provider = PROVIDER_DEFINITIONS[providerId];
+
+    if (!provider) {
+      return res.status(404).json({ detail: `Unknown provider: ${providerId}` });
+    }
+
+    if (!provider.dynamic_models) {
+      return res.status(400).json({
+        detail: `Provider ${providerId} does not support dynamic models`,
+      });
+    }
+
+    clearProviderDynamicModels(providerId);
+    const models = await getProviderDynamicModels(
+      providerId,
+      getProviderAuthorization,
+      OPENROUTER_MODEL_CACHE_TTL_MS,
+      true // force refresh
+    );
+
+    const providers = await listProviderStatuses();
+    res.json({
+      ok: true,
+      models,
+      provider: providers[providerId],
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ detail: e.message });
   }
 });
 

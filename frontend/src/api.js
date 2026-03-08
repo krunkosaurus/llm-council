@@ -248,4 +248,24 @@ export const api = {
 
     return response.json();
   },
+
+  /**
+   * Refresh dynamic models for a provider.
+   */
+  async refreshProviderModels(provider) {
+    const response = await fetch(`${API_BASE}/api/auth/${provider}/models/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || `Failed to refresh models for ${provider}`);
+    }
+
+    return response.json();
+  },
 };
