@@ -24,15 +24,56 @@ export default function ChatInterface({
   isLoading,
 }) {
   const [input, setInput] = useState('');
+  const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const autoScrollEnabledRef = useRef(true);
+  const lastScrollSignatureRef = useRef('');
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const isNearBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceFromBottom <= 80;
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [conversation]);
+    // Reset stick-to-bottom behavior whenever switching conversations.
+    autoScrollEnabledRef.current = true;
+    lastScrollSignatureRef.current = '';
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+  }, [conversation?.id]);
+
+  useEffect(() => {
+    if (!conversation) return;
+
+    const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+    const lastMessage = messages[messages.length - 1] || null;
+    const signature = [
+      conversation.id || '',
+      messages.length,
+      isLoading ? 1 : 0,
+      lastMessage && lastMessage.role ? lastMessage.role : '',
+      Boolean(lastMessage && lastMessage.loading && lastMessage.loading.stage1),
+      Boolean(lastMessage && lastMessage.loading && lastMessage.loading.stage2),
+      Boolean(lastMessage && lastMessage.loading && lastMessage.loading.stage3),
+      Boolean(lastMessage && lastMessage.stage1),
+      Boolean(lastMessage && lastMessage.stage2),
+      Boolean(lastMessage && lastMessage.stage3),
+    ].join('|');
+
+    if (signature === lastScrollSignatureRef.current) {
+      return;
+    }
+    lastScrollSignatureRef.current = signature;
+
+    if (autoScrollEnabledRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [conversation, isLoading]);
+
+  const handleMessagesScroll = () => {
+    autoScrollEnabledRef.current = isNearBottom();
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -63,7 +104,11 @@ export default function ChatInterface({
 
   return (
     <div className="chat-interface">
-      <div className="messages-container">
+      <div
+        ref={messagesContainerRef}
+        className="messages-container"
+        onScroll={handleMessagesScroll}
+      >
         {conversation.messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
