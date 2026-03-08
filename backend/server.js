@@ -153,10 +153,10 @@ app.post('/api/auth/:provider/disconnect', (req, res) => {
 });
 
 // Connect or re-enable provider
-app.post('/api/auth/:provider/connect', (req, res) => {
+app.post('/api/auth/:provider/connect', async (req, res) => {
   try {
     connectProvider(req.params.provider);
-    const providers = listProviderStatuses();
+    const providers = await listProviderStatuses();
     res.json({
       ok: true,
       provider: providers[req.params.provider],

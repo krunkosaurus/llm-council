@@ -495,8 +495,8 @@ async function buildProviderStatus(providerId) {
       has_refresh_token: false,
       connect_method: provider.mode,
       selected_model: selectedModel,
-<<<<<<< HEAD
-      available_models: getAvailableProviderModels(providerId),
+      available_models: availableModels,
+      dynamic_models: provider.dynamic_models || false,
       status_text: !configured ? 'Needs setup' : connected ? 'Configured' : 'Disconnected',
       setup_hint: !configured
         ? provider.setup_hint || null
@@ -505,16 +505,6 @@ async function buildProviderStatus(providerId) {
             ? provider.setup_hint || null
             : null
           : 'Temporarily disconnected from this council session.',
-=======
-      available_models: availableModels,
-      dynamic_models: provider.dynamic_models || false,
-      status_text: connected ? 'Configured' : 'Needs setup',
-      setup_hint: connected
-        ? provider.mode === 'config' && provider.auth_type === 'none'
-          ? provider.setup_hint || null
-          : null
-        : provider.setup_hint || null,
->>>>>>> worktree-iridescent-crunching-spark
     };
   }
 
@@ -890,7 +880,6 @@ function connectProvider(providerId) {
     e.status = 400;
     throw e;
   }
-<<<<<<< HEAD
 
   const hasConfig = Boolean(getStaticProviderApiKey(provider) || provider.auth_type === 'none');
   if (!hasConfig) {
@@ -900,10 +889,7 @@ function connectProvider(providerId) {
   }
 
   setProviderEnabled(providerId, true);
-=======
-  clearProviderToken(providerId);
   clearProviderDynamicModels(providerId);
->>>>>>> worktree-iridescent-crunching-spark
 }
 
 module.exports = {

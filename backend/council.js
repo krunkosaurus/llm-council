@@ -2,8 +2,8 @@ const { queryModel, queryModelsParallel } = require('./modelClients');
 const { COUNCIL_PROVIDER_ORDER } = require('./config');
 const { listProviderStatuses } = require('./oauth');
 
-function getConnectedCouncilModels() {
-  const providers = listProviderStatuses();
+async function getConnectedCouncilModels() {
+  const providers = await listProviderStatuses();
 
   return COUNCIL_PROVIDER_ORDER.map((providerId) => {
     const provider = providers[providerId];
@@ -14,12 +14,12 @@ function getConnectedCouncilModels() {
   }).filter(Boolean);
 }
 
-function pickChairmanModel(models) {
+async function pickChairmanModel(models) {
   if (Array.isArray(models) && models.length > 0) {
     return models[0];
   }
 
-  const connectedModels = getConnectedCouncilModels();
+  const connectedModels = await getConnectedCouncilModels();
   return connectedModels[0] || null;
 }
 
@@ -27,7 +27,7 @@ function pickChairmanModel(models) {
  * Stage 1: Collect individual responses from all connected council models.
  */
 async function stage1CollectResponses(userQuery) {
-  const councilModels = getConnectedCouncilModels();
+  const councilModels = await getConnectedCouncilModels();
   if (councilModels.length === 0) {
     return [[], []];
   }
@@ -137,7 +137,7 @@ Now provide your evaluation and ranking:`;
  * Stage 3: Chairman synthesizes final response.
  */
 async function stage3SynthesizeFinal(userQuery, stage1Results, stage2Results) {
-  const chairmanModel = pickChairmanModel(stage1Results.map((result) => result.model));
+  const chairmanModel = await pickChairmanModel(stage1Results.map((result) => result.model));
 
   if (!chairmanModel) {
     return {
@@ -270,7 +270,7 @@ Question: ${userQuery}
 Title:`;
 
   const messages = [{ role: 'user', content: titlePrompt }];
-  const titleModels = getConnectedCouncilModels();
+  const titleModels = await getConnectedCouncilModels();
 
   if (titleModels.length === 0) {
     return 'New Conversation';
