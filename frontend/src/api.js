@@ -83,25 +83,49 @@ export const api = {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = '';
+
+    const processEventBlock = (block) => {
+      const lines = block.split('\n');
+      const dataLines = [];
+
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5));
+        }
+      }
+
+      if (dataLines.length === 0) {
+        return;
+      }
+
+      try {
+        const event = JSON.parse(dataLines.join('\n'));
+        onEvent(event.type, event);
+      } catch (e) {
+        console.error('Failed to parse SSE event:', e);
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          try {
-            const event = JSON.parse(data);
-            onEvent(event.type, event);
-          } catch (e) {
-            console.error('Failed to parse SSE event:', e);
-          }
-        }
+      if (done) {
+        break;
       }
+
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        processEventBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+
+    buffer += decoder.decode().replace(/\r\n/g, '\n');
+    if (buffer.trim()) {
+      processEventBlock(buffer);
     }
   },
 

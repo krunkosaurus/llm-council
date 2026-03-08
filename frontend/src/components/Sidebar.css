@@ -83,6 +83,13 @@
   color: #b45309;
 }
 
+.oauth-provider-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #6b7280;
+}
+
 .oauth-btn {
   border: 1px solid transparent;
   border-radius: 6px;

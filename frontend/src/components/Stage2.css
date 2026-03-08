@@ -20,6 +20,38 @@
   line-height: 1.5;
 }
 
+.response-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px 0;
+}
+
+.response-map-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.response-map-label {
+  color: #2a7ae2;
+  font-weight: 700;
+}
+
+.response-map-arrow {
+  color: #999;
+}
+
+.response-map-model {
+  color: #333;
+  font-family: monospace;
+}
+
 .aggregate-rankings {
   background: #f0f7ff;
   padding: 16px;

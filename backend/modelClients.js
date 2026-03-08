@@ -3,6 +3,7 @@ const {
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
   ANTHROPIC_MAX_TOKENS,
+  PROVIDER_DEFINITIONS,
 } = require('./config');
 const { getProviderAuthorization } = require('./oauth');
 
@@ -25,27 +26,27 @@ const DEFAULT_OPENAI_INSTRUCTIONS =
   'You are Codex, a terminal-based coding assistant. Be accurate, safe, and concise.';
 
 function normalizeModelForProvider(model, provider) {
-  if (provider === 'openai') {
-    return model.replace(/^openai\//, '');
-  }
-
-  if (provider === 'anthropic') {
-    return model.replace(/^anthropic\//, '').replace(/\./g, '-');
+  const prefix = `${provider}/`;
+  if (typeof model === 'string' && model.startsWith(prefix)) {
+    const normalized = model.slice(prefix.length);
+    return provider === 'anthropic' ? normalized.replace(/\./g, '-') : normalized;
   }
 
   return model;
 }
 
 function inferProviderFromModel(model) {
-  if (model.startsWith('openai/')) {
-    return 'openai';
+  if (typeof model !== 'string') {
+    return null;
   }
 
-  if (model.startsWith('anthropic/')) {
-    return 'anthropic';
+  const slashIndex = model.indexOf('/');
+  if (slashIndex <= 0) {
+    return null;
   }
 
-  return null;
+  const providerId = model.slice(0, slashIndex);
+  return PROVIDER_DEFINITIONS[providerId] ? providerId : null;
 }
 
 function parseMessageContent(message) {
@@ -71,6 +72,64 @@ function parseMessageContent(message) {
   }
 
   return String(message.content);
+}
+
+function buildPlainMessages(messages) {
+  return messages
+    .filter(
+      (message) =>
+        message &&
+        (message.role === 'system' || message.role === 'user' || message.role === 'assistant')
+    )
+    .map((message) => ({
+      role: message.role,
+      content: parseMessageContent(message),
+    }))
+    .filter((message) => message.content && message.content.trim());
+}
+
+function buildRoleTranscript(messages) {
+  return buildPlainMessages(messages)
+    .map((message) => `[${message.role.toUpperCase()}]\n${message.content}`)
+    .join('\n\n')
+    .trim();
+}
+
+function parseChatCompletionResponse(data) {
+  if (!data || typeof data !== 'object' || !Array.isArray(data.choices)) {
+    return null;
+  }
+
+  const message = data.choices[0] && data.choices[0].message;
+  return parseMessageContent(message);
+}
+
+function buildOpenAICompatiblePayload(model, messages) {
+  return {
+    model: normalizeModelForProvider(model, inferProviderFromModel(model)),
+    messages: buildPlainMessages(messages),
+    stream: false,
+  };
+}
+
+function getOpenAICompatibleRequestBody(providerId, model) {
+  const provider = PROVIDER_DEFINITIONS[providerId];
+  if (!provider) {
+    return {};
+  }
+
+  const modelDefinition = Array.isArray(provider.models)
+    ? provider.models.find((candidate) => candidate && candidate.id === model)
+    : null;
+
+  return {
+    ...(provider.request_body || {}),
+    ...(modelDefinition && modelDefinition.request_body ? modelDefinition.request_body : {}),
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildOpenAIInputMessages(messages) {
@@ -475,12 +534,175 @@ async function queryViaAnthropicOAuth(model, messages, timeout = 120000) {
   }
 }
 
+async function queryViaOpenAICompatibleProvider(providerId, model, messages, timeout = 120000) {
+  const provider = PROVIDER_DEFINITIONS[providerId];
+  const auth = await getProviderAuthorization(providerId);
+  if (!provider || !auth || !auth.baseURL) {
+    console.error(`Configured provider ${providerId} is unavailable; skipping model ${model}`);
+    return null;
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(auth.headers || {}),
+  };
+
+  if (auth.accessToken) {
+    headers.Authorization = `Bearer ${auth.accessToken}`;
+  }
+
+  try {
+    const payload = {
+      ...buildOpenAICompatiblePayload(model, messages),
+      ...getOpenAICompatibleRequestBody(providerId, model),
+    };
+
+    const response = await fetch(`${auth.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+
+    const data = await response.json();
+    return {
+      content: parseChatCompletionResponse(data),
+      reasoning_details: null,
+    };
+  } catch (error) {
+    console.error(`Error querying OpenAI-compatible provider ${providerId} (${model}): ${error.message}`);
+    return null;
+  }
+}
+
+function parseManusOutputText(output) {
+  if (!Array.isArray(output)) {
+    return null;
+  }
+
+  return output
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return '';
+      }
+
+      if (Array.isArray(item.content)) {
+        return item.content
+          .map((content) => {
+            if (!content || typeof content !== 'object') {
+              return '';
+            }
+            return typeof content.text === 'string' ? content.text : '';
+          })
+          .join('\n');
+      }
+
+      return '';
+    })
+    .join('\n')
+    .trim();
+}
+
+async function pollManusTask(auth, taskId, timeout) {
+  const startedAt = Date.now();
+  const headers = {
+    'Content-Type': 'application/json',
+    API_KEY: auth.apiKey,
+  };
+
+  while (Date.now() - startedAt < timeout) {
+    const response = await fetch(`${auth.baseURL}/v1/tasks/${taskId}`, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(Math.min(timeout, 20000)),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+
+    const task = await response.json();
+    const status = typeof task.status === 'string' ? task.status.toLowerCase() : '';
+
+    if (status === 'completed') {
+      return task;
+    }
+
+    if (status === 'failed' || status === 'error' || status === 'cancelled') {
+      throw new Error(task.error || task.message || `Task ended with status ${task.status}`);
+    }
+
+    if (status === 'awaiting_input') {
+      throw new Error('Task is waiting for follow-up input, which LLM Council does not support yet');
+    }
+
+    await sleep(2000);
+  }
+
+  throw new Error('Timed out waiting for Manus task completion');
+}
+
+async function queryViaManus(model, messages, timeout = 120000) {
+  const auth = await getProviderAuthorization('manus');
+  if (!auth || !auth.apiKey || !auth.baseURL) {
+    console.error(`Manus API key unavailable; skipping model ${model}`);
+    return null;
+  }
+
+  const prompt = buildRoleTranscript(messages);
+
+  try {
+    const createResponse = await fetch(`${auth.baseURL}/v1/tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        API_KEY: auth.apiKey,
+      },
+      body: JSON.stringify({
+        prompt,
+        agentProfile: normalizeModelForProvider(model, 'manus'),
+      }),
+      signal: AbortSignal.timeout(Math.min(timeout, 20000)),
+    });
+
+    if (!createResponse.ok) {
+      const text = await createResponse.text();
+      throw new Error(`HTTP ${createResponse.status}: ${text}`);
+    }
+
+    const task = await createResponse.json();
+    if (!task || !task.task_id) {
+      throw new Error('Task creation did not return a task_id');
+    }
+
+    const finalTask = await pollManusTask(auth, task.task_id, timeout);
+    return {
+      content: parseManusOutputText(finalTask.output),
+      reasoning_details: null,
+    };
+  } catch (error) {
+    console.error(`Error querying Manus model ${model}: ${error.message}`);
+    return null;
+  }
+}
+
 /**
- * Query a single model via provider OAuth only.
- * Unsupported providers or missing OAuth credentials return null.
+ * Query a single model via the configured provider transport.
+ * Unsupported providers or missing credentials return null.
  */
 async function queryModel(model, messages, timeout = 120000) {
   const provider = inferProviderFromModel(model);
+
+  if (!provider) {
+    console.error(`Unsupported model provider for ${model}`);
+    return null;
+  }
 
   if (provider === 'openai') {
     return queryViaOpenAIOAuth(model, messages, timeout);
@@ -490,7 +712,15 @@ async function queryModel(model, messages, timeout = 120000) {
     return queryViaAnthropicOAuth(model, messages, timeout);
   }
 
-  console.error(`Unsupported model provider for ${model}; only openai/* and anthropic/* are allowed`);
+  if (provider === 'manus') {
+    return queryViaManus(model, messages, timeout);
+  }
+
+  if (PROVIDER_DEFINITIONS[provider] && PROVIDER_DEFINITIONS[provider].transport === 'openai-compatible') {
+    return queryViaOpenAICompatibleProvider(provider, model, messages, timeout);
+  }
+
+  console.error(`Unsupported transport for ${model}`);
   return null;
 }
 

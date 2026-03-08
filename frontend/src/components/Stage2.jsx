@@ -2,14 +2,25 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './Stage2.css';
 
+function getModelShortName(model) {
+  return model.split('/')[1] || model;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function deAnonymizeText(text, labelToModel) {
   if (!labelToModel) return text;
 
   let result = text;
-  // Replace each "Response X" with the actual model name
+  // Keep the original label visible while making the mapped model explicit.
   Object.entries(labelToModel).forEach(([label, model]) => {
-    const modelShortName = model.split('/')[1] || model;
-    result = result.replace(new RegExp(label, 'g'), `**${modelShortName}**`);
+    const modelShortName = getModelShortName(model);
+    result = result.replace(
+      new RegExp(escapeRegExp(label), 'g'),
+      `${label} (**${modelShortName}**)`
+    );
   });
   return result;
 }
@@ -28,8 +39,20 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
       <h4>Raw Evaluations</h4>
       <p className="stage-description">
         Each model evaluated all responses (anonymized as Response A, B, C, etc.) and provided rankings.
-        Below, model names are shown in <strong>bold</strong> for readability, but the original evaluation used anonymous labels.
+        Below, each response label is shown with its mapped model so you do not need to look it up separately.
       </p>
+
+      {labelToModel && Object.keys(labelToModel).length > 0 && (
+        <div className="response-map">
+          {Object.entries(labelToModel).map(([label, model]) => (
+            <div key={label} className="response-map-item">
+              <span className="response-map-label">{label}</span>
+              <span className="response-map-arrow">{'->'}</span>
+              <span className="response-map-model">{getModelShortName(model)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="tabs">
         {rankings.map((rank, index) => (
@@ -61,7 +84,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
               {rankings[activeTab].parsed_ranking.map((label, i) => (
                 <li key={i}>
                   {labelToModel && labelToModel[label]
-                    ? labelToModel[label].split('/')[1] || labelToModel[label]
+                    ? `${label} -> ${getModelShortName(labelToModel[label])}`
                     : label}
                 </li>
               ))}
@@ -81,7 +104,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
               <div key={index} className="aggregate-item">
                 <span className="rank-position">#{index + 1}</span>
                 <span className="rank-model">
-                  {agg.model.split('/')[1] || agg.model}
+                  {getModelShortName(agg.model)}
                 </span>
                 <span className="rank-score">
                   Avg: {agg.average_rank.toFixed(2)}

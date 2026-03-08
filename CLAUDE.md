@@ -7,10 +7,11 @@ LLM Council is a 3-stage deliberation system:
 2. Have models rank anonymized responses.
 3. Synthesize a final chairman response.
 
-This codebase is **OAuth-only** for model calls:
+This codebase supports mixed provider transports:
 - `openai/*` models use ChatGPT OAuth access tokens.
 - `anthropic/*` models use Claude OAuth access tokens.
-- No OpenRouter path exists.
+- `manus/*` models use `MANUS_API_KEY`.
+- Extra provider ids can be loaded from `providers.json` when they are OpenAI-compatible.
 
 ## Backend Architecture
 
@@ -18,7 +19,8 @@ This codebase is **OAuth-only** for model calls:
 - Loads `.env`.
 - `OPENAI_DEFAULT_MODEL` defaults to `openai/gpt-5.4`.
 - `ANTHROPIC_DEFAULT_MODEL` defaults to `anthropic/claude-sonnet-4-6`.
-- OAuth defaults are hardcoded to match opencode-style flows (with optional env overrides).
+- `MANUS_DEFAULT_MODEL` defaults to `manus/manus-1.6`.
+- Merges built-in providers with optional OpenAI-compatible entries from `providers.json`.
 
 ### `backend/oauth.js`
 - Implements OAuth state/PKCE flow.
@@ -35,15 +37,13 @@ This codebase is **OAuth-only** for model calls:
 
 ### `backend/modelClients.js`
 - Provider-based model routing.
-- Only supports `openai/*` and `anthropic/*`.
+- Supports built-in OpenAI, Claude, Manus, and configured OpenAI-compatible providers.
 - Unsupported providers return `null`.
-- Missing/disconnected OAuth tokens return `null`.
+- Missing credentials return `null`.
 
 ### `backend/council.js`
 - Runs all 3 council stages.
-- Title generation uses OAuth models in order:
-  - `openai/gpt-5.1`
-  - `anthropic/claude-sonnet-4.5`
+- Chairman selection follows configured provider order and only uses connected providers.
 
 ### `backend/server.js`
 - REST + SSE conversation APIs.
@@ -57,11 +57,11 @@ This codebase is **OAuth-only** for model calls:
 ## Frontend Notes
 
 ### `frontend/src/App.jsx` + `components/Sidebar.jsx`
-- Sidebar includes provider OAuth connect/disconnect controls.
+- Sidebar includes provider connect controls plus env/config-backed providers.
 - Uses popup callback flow for ChatGPT and manual code-paste completion for Claude.
 
 ### `frontend/src/api.js`
-- Includes OAuth API client functions for provider status/start/complete/disconnect.
+- Includes provider status/start/complete/disconnect/model-selection API client functions.
 
 ## Operational Constraints
 
@@ -73,3 +73,4 @@ This codebase is **OAuth-only** for model calls:
 
 - Conversations: `data/conversations/*.json`
 - OAuth tokens: `data/oauth_tokens.json`
+- Provider model selections: `data/provider_settings.json`

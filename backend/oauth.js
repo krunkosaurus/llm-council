@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const http = require('http');
 const {
   APP_BASE_URL,
+  PROVIDER_DEFINITIONS,
   OPENAI_OAUTH_ISSUER,
   OPENAI_OAUTH_CLIENT_ID,
   OPENAI_OAUTH_SCOPE,
@@ -16,19 +17,6 @@ const { getSelectedProviderModel, getAvailableProviderModels } = require('./prov
 
 const PENDING_STATES_TTL_MS = 10 * 60 * 1000;
 const REFRESH_GRACE_PERIOD_MS = 60 * 1000;
-
-const PROVIDERS = {
-  openai: {
-    id: 'openai',
-    name: 'ChatGPT',
-    mode: 'redirect',
-  },
-  anthropic: {
-    id: 'anthropic',
-    name: 'Claude',
-    mode: 'code',
-  },
-};
 
 const pendingOpenAIStates = new Map();
 const pendingAnthropicFlows = new Map();
@@ -91,7 +79,7 @@ function createState() {
 }
 
 function getProviderOrThrow(providerId) {
-  const provider = PROVIDERS[providerId];
+  const provider = PROVIDER_DEFINITIONS[providerId];
   if (!provider) {
     const e = new Error(`Unknown provider: ${providerId}`);
     e.status = 404;
@@ -208,6 +196,38 @@ function parseErrorMessage(json, fallback) {
     if (json.message) return json.message;
   }
   return fallback;
+}
+
+function getStaticProviderApiKey(provider) {
+  if (!provider || provider.auth_type !== 'api_key') {
+    return null;
+  }
+
+  if (provider.api_key) {
+    return provider.api_key;
+  }
+
+  if (provider.api_key_env) {
+    return process.env[provider.api_key_env] || null;
+  }
+
+  return null;
+}
+
+function getStaticProviderAuthorization(providerId) {
+  const provider = getProviderOrThrow(providerId);
+  const apiKey = getStaticProviderApiKey(provider);
+
+  if (provider.auth_type === 'api_key' && !apiKey) {
+    return null;
+  }
+
+  return {
+    accessToken: apiKey,
+    apiKey,
+    baseURL: provider.base_url || null,
+    headers: provider.headers || {},
+  };
 }
 
 async function postOpenAIFormToken(form) {
@@ -392,8 +412,32 @@ function parseAnthropicAuthorizationCode(input) {
 
 function buildProviderStatus(providerId) {
   const provider = getProviderOrThrow(providerId);
-  const token = getProviderToken(providerId);
   const selectedModel = getSelectedProviderModel(providerId);
+
+  if (provider.auth_type !== 'oauth') {
+    const authorization = getStaticProviderAuthorization(providerId);
+    const connected = Boolean(authorization);
+
+    return {
+      id: provider.id,
+      name: provider.name,
+      configured: connected,
+      connected,
+      expires_at: null,
+      has_refresh_token: false,
+      connect_method: provider.mode,
+      selected_model: selectedModel,
+      available_models: getAvailableProviderModels(providerId),
+      status_text: connected ? 'Configured' : 'Needs setup',
+      setup_hint: connected
+        ? provider.mode === 'config' && provider.auth_type === 'none'
+          ? provider.setup_hint || null
+          : null
+        : provider.setup_hint || null,
+    };
+  }
+
+  const token = getProviderToken(providerId);
 
   return {
     id: provider.id,
@@ -405,14 +449,15 @@ function buildProviderStatus(providerId) {
     connect_method: provider.mode,
     selected_model: selectedModel,
     available_models: getAvailableProviderModels(providerId),
+    status_text: Boolean(token && token.access_token) ? 'Connected' : 'Not connected',
+    setup_hint: null,
   };
 }
 
 function listProviderStatuses() {
-  return {
-    openai: buildProviderStatus('openai'),
-    anthropic: buildProviderStatus('anthropic'),
-  };
+  return Object.fromEntries(
+    Object.keys(PROVIDER_DEFINITIONS).map((providerId) => [providerId, buildProviderStatus(providerId)])
+  );
 }
 
 async function buildOpenAIAuthorizationUrl() {
@@ -493,7 +538,7 @@ function buildAnthropicAuthorizationUrl() {
 
 async function buildAuthorizationUrl(providerId) {
   cleanupExpiredPending();
-  getProviderOrThrow(providerId);
+  const provider = getProviderOrThrow(providerId);
 
   if (providerId === 'openai') {
     return buildOpenAIAuthorizationUrl();
@@ -503,7 +548,11 @@ async function buildAuthorizationUrl(providerId) {
     return buildAnthropicAuthorizationUrl();
   }
 
-  const e = new Error(`Unsupported provider: ${providerId}`);
+  const e = new Error(
+    provider.mode === 'env' || provider.mode === 'config'
+      ? `${provider.name} is configured locally and does not use interactive connect`
+      : `Unsupported provider: ${providerId}`
+  );
   e.status = 400;
   throw e;
 }
@@ -618,7 +667,11 @@ async function refreshProviderToken(providerId, currentToken) {
 }
 
 async function getProviderAuthorization(providerId) {
-  getProviderOrThrow(providerId);
+  const provider = getProviderOrThrow(providerId);
+
+  if (provider.auth_type !== 'oauth') {
+    return getStaticProviderAuthorization(providerId);
+  }
 
   const token = getProviderToken(providerId);
   if (!token || !token.access_token) {
@@ -664,7 +717,12 @@ async function getProviderAccessToken(providerId) {
 }
 
 function disconnectProvider(providerId) {
-  getProviderOrThrow(providerId);
+  const provider = getProviderOrThrow(providerId);
+  if (provider.auth_type !== 'oauth') {
+    const e = new Error(`${provider.name} is configured locally and cannot be disconnected from the UI`);
+    e.status = 400;
+    throw e;
+  }
   clearProviderToken(providerId);
 }
 

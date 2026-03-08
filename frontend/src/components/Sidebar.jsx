@@ -30,7 +30,7 @@ export default function Sidebar({
       </div>
 
       <div className="auth-section">
-        <h2>Provider OAuth</h2>
+        <h2>Providers</h2>
         {providerList.length === 0 ? (
           <div className="oauth-empty">Loading providers...</div>
         ) : (
@@ -39,6 +39,17 @@ export default function Sidebar({
             const modelBusy = providerModelBusy === provider.id;
             const connected = provider.connected;
             const isPendingCodeFlow = pendingCodeOAuth?.providerId === provider.id;
+            const supportsInteractiveConnect =
+              provider.connect_method === 'redirect' || provider.connect_method === 'code';
+            const statusText =
+              provider.status_text ||
+              (!provider.configured
+                ? 'Not configured'
+                : connected
+                  ? 'Connected'
+                  : isPendingCodeFlow
+                    ? 'Waiting for code'
+                    : 'Not connected');
 
             return (
               <div key={provider.id} className="oauth-provider-card">
@@ -50,33 +61,30 @@ export default function Sidebar({
                         provider.configured ? 'configured' : 'not-configured'
                       }`}
                     >
-                      {!provider.configured
-                        ? 'Not configured'
-                        : connected
-                          ? 'Connected'
-                          : isPendingCodeFlow
-                            ? 'Waiting for code'
-                            : 'Not connected'}
+                      {statusText}
                     </div>
                   </div>
-                  {connected ? (
-                    <button
-                      className="oauth-btn oauth-btn-disconnect"
-                      onClick={() => onDisconnectProvider(provider.id)}
-                      disabled={busy}
-                    >
-                      {busy ? '...' : 'Disconnect'}
-                    </button>
-                  ) : (
-                    <button
-                      className="oauth-btn oauth-btn-connect"
-                      onClick={() => onConnectProvider(provider.id)}
-                      disabled={!provider.configured || busy}
-                    >
-                      {busy ? '...' : isPendingCodeFlow ? 'Reconnect' : 'Connect'}
-                    </button>
-                  )}
+                  {supportsInteractiveConnect
+                    ? connected ? (
+                        <button
+                          className="oauth-btn oauth-btn-disconnect"
+                          onClick={() => onDisconnectProvider(provider.id)}
+                          disabled={busy}
+                        >
+                          {busy ? '...' : 'Disconnect'}
+                        </button>
+                      ) : (
+                        <button
+                          className="oauth-btn oauth-btn-connect"
+                          onClick={() => onConnectProvider(provider.id)}
+                          disabled={!provider.configured || busy}
+                        >
+                          {busy ? '...' : isPendingCodeFlow ? 'Reconnect' : 'Connect'}
+                        </button>
+                      )
+                    : null}
                 </div>
+                {provider.setup_hint ? <div className="oauth-provider-hint">{provider.setup_hint}</div> : null}
                 {Array.isArray(provider.available_models) && provider.available_models.length > 0 ? (
                   <label className="oauth-model-picker">
                     <span className="oauth-model-label">Model</span>
@@ -84,7 +92,7 @@ export default function Sidebar({
                       className="oauth-model-select"
                       value={provider.selected_model || ''}
                       onChange={(event) => onProviderModelChange(provider.id, event.target.value)}
-                      disabled={busy || modelBusy}
+                      disabled={!connected || busy || modelBusy}
                     >
                       {provider.available_models.map((model) => (
                         <option key={model.id} value={model.id}>

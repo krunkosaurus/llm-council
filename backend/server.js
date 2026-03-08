@@ -199,13 +199,20 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
   });
+
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
 
   const sendEvent = (event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
+
+  res.write(': connected\n\n');
 
   try {
     storage.addUserMessage(conversationId, content);
