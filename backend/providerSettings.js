@@ -69,6 +69,11 @@ async function getDefaultProviderModel(providerId, getProviderAuthorization = nu
   return (catalog[0] || {}).id || null;
 }
 
+async function getProviderCatalogIdSet(providerId, getProviderAuthorization = null) {
+  const catalog = await getProviderCatalog(providerId, getProviderAuthorization);
+  return new Set(catalog.map((model) => model.id));
+}
+
 async function isValidProviderModel(providerId, modelId, getProviderAuthorization = null) {
   const catalog = await getProviderCatalog(providerId, getProviderAuthorization);
   return catalog.some((model) => model.id === modelId);
@@ -93,9 +98,13 @@ async function setSelectedProviderModel(providerId, modelId, getProviderAuthoriz
   }
 
   const store = readProviderSettingsStore();
+  const existingAdditionalModels = Array.isArray(store[providerId] && store[providerId].additional_models)
+    ? store[providerId].additional_models
+    : [];
   store[providerId] = {
     ...(store[providerId] || {}),
     selected_model: modelId,
+    additional_models: existingAdditionalModels.filter((candidate) => candidate !== modelId),
     updated_at: new Date().toISOString(),
   };
   writeProviderSettingsStore(store);
@@ -103,10 +112,100 @@ async function setSelectedProviderModel(providerId, modelId, getProviderAuthoriz
   return store[providerId];
 }
 
+async function getAdditionalProviderModels(providerId, getProviderAuthorization = null) {
+  const store = readProviderSettingsStore();
+  const selectedModel = await getSelectedProviderModel(providerId, getProviderAuthorization);
+  const validModelIds = await getProviderCatalogIdSet(providerId, getProviderAuthorization);
+  const rawAdditionalModels = Array.isArray(store[providerId] && store[providerId].additional_models)
+    ? store[providerId].additional_models
+    : [];
+
+  const seen = new Set();
+  return rawAdditionalModels.filter((modelId) => {
+    if (typeof modelId !== 'string') {
+      return false;
+    }
+    if (modelId === selectedModel) {
+      return false;
+    }
+    if (!validModelIds.has(modelId)) {
+      return false;
+    }
+    if (seen.has(modelId)) {
+      return false;
+    }
+    seen.add(modelId);
+    return true;
+  });
+}
+
+async function setAdditionalProviderModels(providerId, modelIds, getProviderAuthorization = null) {
+  if (!Array.isArray(modelIds)) {
+    const e = new Error(`Expected additional models array for ${providerId}`);
+    e.status = 400;
+    throw e;
+  }
+
+  const selectedModel = await getSelectedProviderModel(providerId, getProviderAuthorization);
+  const validModelIds = await getProviderCatalogIdSet(providerId, getProviderAuthorization);
+  const normalized = [];
+  const seen = new Set();
+  for (const modelId of modelIds) {
+    if (typeof modelId !== 'string' || !modelId.trim()) {
+      continue;
+    }
+    if (modelId === selectedModel || seen.has(modelId)) {
+      continue;
+    }
+    if (!validModelIds.has(modelId)) {
+      const e = new Error(`Unsupported model for ${providerId}: ${modelId}`);
+      e.status = 400;
+      throw e;
+    }
+    seen.add(modelId);
+    normalized.push(modelId);
+  }
+
+  const store = readProviderSettingsStore();
+  store[providerId] = {
+    ...(store[providerId] || {}),
+    additional_models: normalized,
+    updated_at: new Date().toISOString(),
+  };
+  writeProviderSettingsStore(store);
+
+  return store[providerId];
+}
+
+async function addAdditionalProviderModel(providerId, modelId, getProviderAuthorization = null) {
+  const current = await getAdditionalProviderModels(providerId, getProviderAuthorization);
+  if (current.includes(modelId)) {
+    return readProviderSettingsStore()[providerId] || {};
+  }
+  return setAdditionalProviderModels(providerId, [...current, modelId], getProviderAuthorization);
+}
+
+async function removeAdditionalProviderModel(providerId, modelId, getProviderAuthorization = null) {
+  const current = await getAdditionalProviderModels(providerId, getProviderAuthorization);
+  return setAdditionalProviderModels(
+    providerId,
+    current.filter((candidate) => candidate !== modelId),
+    getProviderAuthorization
+  );
+}
+
 async function getAvailableProviderModels(providerId, getProviderAuthorization = null) {
   const selectedModel = await getSelectedProviderModel(providerId, getProviderAuthorization);
   const catalog = await getProviderCatalog(providerId, getProviderAuthorization);
-  return catalog.map((model) => ({
+  const orderedCatalog = providerId === 'openrouter'
+    ? [...catalog].sort((a, b) => {
+        const labelA = String(a.label || a.id || '');
+        const labelB = String(b.label || b.id || '');
+        return labelA.localeCompare(labelB, undefined, { sensitivity: 'base' });
+      })
+    : catalog;
+
+  return orderedCatalog.map((model) => ({
     ...model,
     selected: model.id === selectedModel,
   }));
@@ -142,6 +241,10 @@ function setProviderEnabled(providerId, enabled) {
 module.exports = {
   getSelectedProviderModel,
   setSelectedProviderModel,
+  getAdditionalProviderModels,
+  setAdditionalProviderModels,
+  addAdditionalProviderModel,
+  removeAdditionalProviderModel,
   getAvailableProviderModels,
   isValidProviderModel,
   isProviderEnabled,

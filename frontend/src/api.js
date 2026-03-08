@@ -250,6 +250,46 @@ export const api = {
   },
 
   /**
+   * Add an additional council model for a provider.
+   */
+  async addProviderModel(provider, model) {
+    const response = await fetch(`${API_BASE}/api/auth/${provider}/models/add`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || `Failed to add model for ${provider}`);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Remove an additional council model for a provider.
+   */
+  async removeProviderModel(provider, model) {
+    const response = await fetch(`${API_BASE}/api/auth/${provider}/models/remove`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error((data && data.detail) || `Failed to remove model for ${provider}`);
+    }
+
+    return response.json();
+  },
+
+  /**
    * Refresh dynamic models for a provider.
    */
   async refreshProviderModels(provider) {

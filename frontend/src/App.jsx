@@ -330,6 +330,52 @@ function App() {
     }
   };
 
+  const handleAddProviderModel = async (providerId, modelId) => {
+    if (!modelId) {
+      return;
+    }
+    setProviderModelBusy(providerId);
+
+    try {
+      const result = await api.addProviderModel(providerId, modelId);
+      if (result && result.provider) {
+        setAuthProviders((prev) => ({
+          ...prev,
+          [providerId]: result.provider,
+        }));
+      } else {
+        await loadAuthProviders();
+      }
+    } catch (error) {
+      console.error(`Failed to add model for ${providerId}:`, error);
+    } finally {
+      setProviderModelBusy(null);
+    }
+  };
+
+  const handleRemoveProviderModel = async (providerId, modelId) => {
+    if (!modelId) {
+      return;
+    }
+    setProviderModelBusy(providerId);
+
+    try {
+      const result = await api.removeProviderModel(providerId, modelId);
+      if (result && result.provider) {
+        setAuthProviders((prev) => ({
+          ...prev,
+          [providerId]: result.provider,
+        }));
+      } else {
+        await loadAuthProviders();
+      }
+    } catch (error) {
+      console.error(`Failed to remove model for ${providerId}:`, error);
+    } finally {
+      setProviderModelBusy(null);
+    }
+  };
+
   const handleRefreshProviderModels = async (providerId) => {
     setProviderModelBusy(providerId);
 
@@ -496,6 +542,8 @@ function App() {
         onConnectProvider={handleConnectProvider}
         onDisconnectProvider={handleDisconnectProvider}
         onProviderModelChange={handleProviderModelChange}
+        onAddProviderModel={handleAddProviderModel}
+        onRemoveProviderModel={handleRemoveProviderModel}
         onRefreshProviderModels={handleRefreshProviderModels}
         pendingCodeOAuth={pendingCodeOAuth}
         pendingOAuthCode={pendingOAuthCode}

@@ -19,7 +19,11 @@ const {
   disconnectProvider,
   getProviderAuthorization,
 } = require('./oauth');
-const { setSelectedProviderModel } = require('./providerSettings');
+const {
+  setSelectedProviderModel,
+  addAdditionalProviderModel,
+  removeAdditionalProviderModel,
+} = require('./providerSettings');
 const {
   FRONTEND_BASE_URL,
   PROVIDER_DEFINITIONS,
@@ -177,6 +181,48 @@ app.post('/api/auth/:provider/model', async (req, res) => {
     }
 
     await setSelectedProviderModel(providerId, modelId, getProviderAuthorization);
+    const providers = await listProviderStatuses();
+    res.json({
+      ok: true,
+      provider: providers[providerId],
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
+// Add an additional council model for provider
+app.post('/api/auth/:provider/models/add', async (req, res) => {
+  try {
+    const providerId = req.params.provider;
+    const modelId = req.body && req.body.model;
+
+    if (!modelId) {
+      return res.status(400).json({ detail: 'Missing model' });
+    }
+
+    await addAdditionalProviderModel(providerId, modelId, getProviderAuthorization);
+    const providers = await listProviderStatuses();
+    res.json({
+      ok: true,
+      provider: providers[providerId],
+    });
+  } catch (e) {
+    res.status(e.status || 400).json({ detail: e.message });
+  }
+});
+
+// Remove an additional council model for provider
+app.post('/api/auth/:provider/models/remove', async (req, res) => {
+  try {
+    const providerId = req.params.provider;
+    const modelId = req.body && req.body.model;
+
+    if (!modelId) {
+      return res.status(400).json({ detail: 'Missing model' });
+    }
+
+    await removeAdditionalProviderModel(providerId, modelId, getProviderAuthorization);
     const providers = await listProviderStatuses();
     res.json({
       ok: true,

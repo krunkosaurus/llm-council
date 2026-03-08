@@ -4,14 +4,20 @@ const { listProviderStatuses } = require('./oauth');
 
 async function getConnectedCouncilModels() {
   const providers = await listProviderStatuses();
+  const connectedModels = [];
 
-  return COUNCIL_PROVIDER_ORDER.map((providerId) => {
+  COUNCIL_PROVIDER_ORDER.forEach((providerId) => {
     const provider = providers[providerId];
     if (!provider || !provider.connected || !provider.selected_model) {
-      return null;
+      return;
     }
-    return provider.selected_model;
-  }).filter(Boolean);
+    connectedModels.push(provider.selected_model);
+    if (Array.isArray(provider.additional_selected_models)) {
+      connectedModels.push(...provider.additional_selected_models);
+    }
+  });
+
+  return [...new Set(connectedModels)];
 }
 
 async function pickChairmanModel(models) {

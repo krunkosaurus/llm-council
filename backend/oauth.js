@@ -15,6 +15,7 @@ const {
 const { getProviderToken, setProviderToken, clearProviderToken } = require('./oauthStorage');
 const {
   getSelectedProviderModel,
+  getAdditionalProviderModels,
   getAvailableProviderModels,
   isProviderEnabled,
   setProviderEnabled,
@@ -478,8 +479,11 @@ function parseAnthropicAuthorizationCode(input) {
 
 async function buildProviderStatus(providerId) {
   const provider = getProviderOrThrow(providerId);
-  const selectedModel = await getSelectedProviderModel(providerId, getProviderAuthorization);
-  const availableModels = await getAvailableProviderModels(providerId, getProviderAuthorization);
+  const [selectedModel, additionalSelectedModels, availableModels] = await Promise.all([
+    getSelectedProviderModel(providerId, getProviderAuthorization),
+    getAdditionalProviderModels(providerId, getProviderAuthorization),
+    getAvailableProviderModels(providerId, getProviderAuthorization),
+  ]);
 
   if (provider.auth_type !== 'oauth') {
     const enabled = isProviderEnabled(providerId);
@@ -495,6 +499,7 @@ async function buildProviderStatus(providerId) {
       has_refresh_token: false,
       connect_method: provider.mode,
       selected_model: selectedModel,
+      additional_selected_models: additionalSelectedModels,
       available_models: availableModels,
       dynamic_models: provider.dynamic_models || false,
       status_text: !configured ? 'Needs setup' : connected ? 'Configured' : 'Disconnected',
@@ -519,6 +524,7 @@ async function buildProviderStatus(providerId) {
     has_refresh_token: Boolean(token && token.refresh_token),
     connect_method: provider.mode,
     selected_model: selectedModel,
+    additional_selected_models: additionalSelectedModels,
     available_models: availableModels,
     dynamic_models: provider.dynamic_models || false,
     status_text: Boolean(token && token.access_token) ? 'Connected' : 'Not connected',
