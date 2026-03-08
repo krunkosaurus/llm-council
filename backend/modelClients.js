@@ -690,6 +690,7 @@ function parseManusOutputText(output) {
 async function pollManusTask(auth, taskId, timeout) {
   const startedAt = Date.now();
   let notFoundCount = 0;
+  let lastStatus = 'unknown';
   const headers = {
     'Content-Type': 'application/json',
     API_KEY: auth.apiKey,
@@ -715,6 +716,7 @@ async function pollManusTask(auth, taskId, timeout) {
     notFoundCount = 0;
     const task = await response.json();
     const status = typeof task.status === 'string' ? task.status.toLowerCase() : '';
+    lastStatus = status || lastStatus;
 
     if (status === 'completed') {
       return task;
@@ -731,7 +733,7 @@ async function pollManusTask(auth, taskId, timeout) {
     await sleep(2000);
   }
 
-  throw new Error('Timed out waiting for Manus task completion');
+  throw new Error(`Timed out waiting for Manus task completion (task_id: ${taskId}, last_status: ${lastStatus})`);
 }
 
 async function queryViaManus(model, messages, timeout = MANUS_TASK_TIMEOUT_MS) {
@@ -780,33 +782,37 @@ async function queryViaManus(model, messages, timeout = MANUS_TASK_TIMEOUT_MS) {
  * Query a single model via the configured provider transport.
  * Unsupported providers or missing credentials return null.
  */
-async function queryModelOrThrow(model, messages, timeout = 120000) {
+async function queryModelOrThrow(model, messages, timeout) {
   const provider = inferProviderFromModel(model);
+  const hasCustomTimeout = Number.isFinite(timeout) && timeout > 0;
+  const defaultTimeout = 120000;
+  const effectiveTimeout = hasCustomTimeout ? timeout : defaultTimeout;
 
   if (!provider) {
     throw new Error(`Unsupported model provider for ${model}`);
   }
 
   if (provider === 'openai') {
-    return queryViaOpenAIOAuth(model, messages, timeout);
+    return queryViaOpenAIOAuth(model, messages, effectiveTimeout);
   }
 
   if (provider === 'anthropic') {
-    return queryViaAnthropicOAuth(model, messages, timeout);
+    return queryViaAnthropicOAuth(model, messages, effectiveTimeout);
   }
 
   if (provider === 'manus') {
-    return queryViaManus(model, messages, timeout);
+    const manusTimeout = hasCustomTimeout ? timeout : MANUS_TASK_TIMEOUT_MS;
+    return queryViaManus(model, messages, manusTimeout);
   }
 
   if (PROVIDER_DEFINITIONS[provider] && PROVIDER_DEFINITIONS[provider].transport === 'openai-compatible') {
-    return queryViaOpenAICompatibleProvider(provider, model, messages, timeout);
+    return queryViaOpenAICompatibleProvider(provider, model, messages, effectiveTimeout);
   }
 
   throw new Error(`Unsupported transport for ${model}`);
 }
 
-async function queryModel(model, messages, timeout = 120000) {
+async function queryModel(model, messages, timeout) {
   try {
     return await queryModelOrThrow(model, messages, timeout);
   } catch (error) {
@@ -815,7 +821,7 @@ async function queryModel(model, messages, timeout = 120000) {
   }
 }
 
-async function queryModelDetailed(model, messages, timeout = 120000) {
+async function queryModelDetailed(model, messages, timeout) {
   try {
     const response = await queryModelOrThrow(model, messages, timeout);
     return { response, error: null };

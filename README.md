@@ -41,6 +41,10 @@ Create `.env` in the project root:
 # Server URLs
 APP_BASE_URL=http://localhost:8001
 FRONTEND_BASE_URL=http://localhost:5173
+# Optional backend listen port (default: 8001)
+# PORT=8001
+# Optional extra CORS origins (comma-separated)
+# CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 
 # Optional: override provider defaults shown in the dropdowns
 OPENAI_DEFAULT_MODEL=openai/gpt-5.4
@@ -137,6 +141,51 @@ npm run dev
 ```
 
 Open http://localhost:5173.
+
+## Production (macOS + Cloudflare on port 80)
+
+If Cloudflare handles TLS and your Mac mini is the origin server:
+
+1. Set production URLs in `.env`:
+```bash
+APP_BASE_URL=https://YOURDOMAIN.com
+FRONTEND_BASE_URL=https://YOURDOMAIN.com
+```
+
+2. Bootstrap production dependencies and build:
+```bash
+./bootstrap-prod.sh
+```
+
+3. Start backend app server with PM2:
+```bash
+pm2 start ecosystem.config.cjs --only llm-council
+pm2 save
+```
+By default this listens on `127.0.0.1:8001` (local-only).
+
+4. Install nginx config so nginx serves `frontend/dist` and proxies `/api/*` to Node:
+```bash
+sudo cp deploy/nginx/llm-council.conf /opt/homebrew/etc/nginx/servers/llm-council.conf
+sudo /opt/homebrew/opt/nginx/bin/nginx -t
+sudo /opt/homebrew/opt/nginx/bin/nginx -s reload
+```
+If your repo is not at `/Users/ksaurus/repos/llm-council`, update the `root` path in
+`deploy/nginx/llm-council.conf` before reloading nginx.
+
+5. Health checks:
+```bash
+curl http://127.0.0.1:8001/api/health
+curl http://127.0.0.1/
+```
+
+Useful PM2 commands:
+```bash
+pm2 logs llm-council
+pm2 restart llm-council
+pm2 stop llm-council
+pm2 delete llm-council
+```
 
 ## Behavior Rules
 

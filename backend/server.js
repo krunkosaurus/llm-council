@@ -18,13 +18,34 @@ const {
   disconnectProvider,
 } = require('./oauth');
 const { setSelectedProviderModel } = require('./providerSettings');
+const { FRONTEND_BASE_URL } = require('./config');
 
 const app = express();
+const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://localhost:3000'];
+
+const allowedOrigins = new Set(
+  [
+    ...DEFAULT_ALLOWED_ORIGINS,
+    FRONTEND_BASE_URL,
+    ...(process.env.CORS_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ].filter(Boolean)
+);
+const allowAllOrigins = allowedOrigins.has('*');
 
 app.use(express.json());
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin(origin, callback) {
+      if (!origin || allowAllOrigins || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
   })
 );
@@ -60,8 +81,17 @@ function renderOAuthCallbackPage(ok, message) {
 }
 
 // Health check
-app.get('/', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'LLM Council API' });
+});
+
+// Lightweight root route for direct backend checks.
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'LLM Council API',
+    hint: 'Use /api/* endpoints for application requests.',
+  });
 });
 
 // OAuth provider status
@@ -339,7 +369,8 @@ app.post('/api/conversations/:conversationId/message/stream', async (req, res) =
   }
 });
 
-const PORT = 8001;
-app.listen(PORT, () => {
-  console.log(`LLM Council API running on http://localhost:${PORT}`);
+const PORT = Number(process.env.PORT || '8001');
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`LLM Council backend listening on http://${HOST}:${PORT}`);
 });

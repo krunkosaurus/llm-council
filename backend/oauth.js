@@ -20,11 +20,20 @@ const REFRESH_GRACE_PERIOD_MS = 60 * 1000;
 
 const pendingOpenAIStates = new Map();
 const pendingAnthropicFlows = new Map();
+const pendingAnthropicStates = new Map();
 const refreshInFlight = new Map();
 const OPENAI_OAUTH_LOCAL_CALLBACK_PORT = Number(
   process.env.OPENAI_OAUTH_LOCAL_CALLBACK_PORT || '1455'
 );
 const OPENAI_OAUTH_LOCAL_REDIRECT_URI = `http://localhost:${OPENAI_OAUTH_LOCAL_CALLBACK_PORT}/auth/callback`;
+const OPENAI_OAUTH_REDIRECT_URI = (
+  process.env.OPENAI_OAUTH_REDIRECT_URI ||
+  `${String(APP_BASE_URL || '').replace(/\/+$/, '')}/api/auth/openai/callback`
+).replace(/\/+$/, '');
+const OPENAI_OAUTH_USE_LOCAL_CALLBACK =
+  process.env.OPENAI_OAUTH_USE_LOCAL_CALLBACK === '1' ||
+  OPENAI_OAUTH_REDIRECT_URI === OPENAI_OAUTH_LOCAL_REDIRECT_URI;
+const OPENAI_OAUTH_MANUAL_CODE_FLOW = process.env.OPENAI_OAUTH_MANUAL_CODE_FLOW === '1';
 let openAICallbackServer = null;
 let openAICallbackServerReady = null;
 
@@ -100,6 +109,12 @@ function cleanupExpiredPending() {
   for (const [flowId, payload] of pendingAnthropicFlows.entries()) {
     if (now - payload.created_at > PENDING_STATES_TTL_MS) {
       pendingAnthropicFlows.delete(flowId);
+    }
+  }
+
+  for (const [state, payload] of pendingAnthropicStates.entries()) {
+    if (now - payload.created_at > PENDING_STATES_TTL_MS) {
+      pendingAnthropicStates.delete(state);
     }
   }
 }
@@ -317,27 +332,8 @@ async function ensureOpenAICallbackServer() {
         return;
       }
 
-      const pending = pendingOpenAIStates.get(state);
-      pendingOpenAIStates.delete(state);
-      if (!pending) {
-        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderOAuthCallbackPage(false, 'Invalid or expired OAuth state'));
-        return;
-      }
-
       try {
-        const tokenResponse = await postOpenAIFormToken({
-          grant_type: 'authorization_code',
-          code,
-          redirect_uri: OPENAI_OAUTH_LOCAL_REDIRECT_URI,
-          client_id: OPENAI_OAUTH_CLIENT_ID,
-          code_verifier: pending.code_verifier,
-        });
-
-        const token = serializeTokenResponse(tokenResponse, null, {
-          account_id: extractOpenAIAccountId(tokenResponse),
-        });
-        setProviderToken('openai', token);
+        await finalizeOpenAIOAuthCode(code, state, OPENAI_OAUTH_LOCAL_REDIRECT_URI);
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(renderOAuthCallbackPage(true, 'ChatGPT connected successfully'));
@@ -363,6 +359,66 @@ async function ensureOpenAICallbackServer() {
   });
 
   return openAICallbackServerReady;
+}
+
+function firstQueryValue(queryParams, key) {
+  const value = queryParams ? queryParams[key] : null;
+  if (Array.isArray(value)) {
+    return value[0] || null;
+  }
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return String(value);
+}
+
+function parseOpenAIAuthorizationCode(input) {
+  const raw = String(input || '').trim();
+  if (!raw) {
+    return { code: null, state: null };
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const url = new URL(raw);
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      return {
+        code: code || null,
+        state: state || null,
+      };
+    } catch (_ignored) {
+      return { code: raw, state: null };
+    }
+  }
+
+  if (raw.includes('#')) {
+    const [code, state] = raw.split('#');
+    return { code: code || null, state: state || null };
+  }
+
+  return { code: raw, state: null };
+}
+
+async function finalizeOpenAIOAuthCode(code, state, redirectUri) {
+  const pending = pendingOpenAIStates.get(state);
+  pendingOpenAIStates.delete(state);
+  if (!pending) {
+    throw new Error('Invalid or expired OAuth state');
+  }
+
+  const tokenResponse = await postOpenAIFormToken({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: OPENAI_OAUTH_CLIENT_ID,
+    code_verifier: pending.code_verifier,
+  });
+
+  const token = serializeTokenResponse(tokenResponse, null, {
+    account_id: extractOpenAIAccountId(tokenResponse),
+  });
+  setProviderToken('openai', token);
 }
 
 function parseAnthropicAuthorizationCode(input) {
@@ -461,16 +517,22 @@ function listProviderStatuses() {
 }
 
 async function buildOpenAIAuthorizationUrl() {
-  try {
-    await ensureOpenAICallbackServer();
-  } catch (e) {
-    const msg =
-      e && e.code === 'EADDRINUSE'
-        ? `Port ${OPENAI_OAUTH_LOCAL_CALLBACK_PORT} is already in use; close the conflicting app and retry ChatGPT connect`
-        : `Unable to start local OAuth callback server: ${e.message}`;
-    const err = new Error(msg);
-    err.status = 500;
-    throw err;
+  const redirectUri = OPENAI_OAUTH_USE_LOCAL_CALLBACK
+    ? OPENAI_OAUTH_LOCAL_REDIRECT_URI
+    : OPENAI_OAUTH_REDIRECT_URI;
+
+  if (OPENAI_OAUTH_USE_LOCAL_CALLBACK && !OPENAI_OAUTH_MANUAL_CODE_FLOW) {
+    try {
+      await ensureOpenAICallbackServer();
+    } catch (e) {
+      const msg =
+        e && e.code === 'EADDRINUSE'
+          ? `Port ${OPENAI_OAUTH_LOCAL_CALLBACK_PORT} is already in use; close the conflicting app and retry ChatGPT connect`
+          : `Unable to start local OAuth callback server: ${e.message}`;
+      const err = new Error(msg);
+      err.status = 500;
+      throw err;
+    }
   }
 
   const state = createState();
@@ -482,7 +544,6 @@ async function buildOpenAIAuthorizationUrl() {
     created_at: Date.now(),
   });
 
-  const redirectUri = OPENAI_OAUTH_LOCAL_REDIRECT_URI;
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: OPENAI_OAUTH_CLIENT_ID,
@@ -498,8 +559,12 @@ async function buildOpenAIAuthorizationUrl() {
 
   return {
     provider: 'openai',
-    method: 'redirect',
+    method: OPENAI_OAUTH_MANUAL_CODE_FLOW ? 'code' : 'redirect',
     auth_url: `${OPENAI_OAUTH_ISSUER}/oauth/authorize?${params.toString()}`,
+    flow_id: state,
+    instructions: OPENAI_OAUTH_MANUAL_CODE_FLOW
+      ? `After approval, copy the full callback URL (starting with ${OPENAI_OAUTH_LOCAL_REDIRECT_URI}) from your browser and paste it back in LLM Council.`
+      : undefined,
   };
 }
 
@@ -512,6 +577,10 @@ function buildAnthropicAuthorizationUrl() {
   pendingAnthropicFlows.set(flowId, {
     code_verifier: codeVerifier,
     state,
+    created_at: Date.now(),
+  });
+  pendingAnthropicStates.set(state, {
+    code_verifier: codeVerifier,
     created_at: Date.now(),
   });
 
@@ -562,17 +631,60 @@ async function handleOAuthCallback(providerId, queryParams) {
   const provider = getProviderOrThrow(providerId);
 
   if (providerId === 'openai') {
-    return {
-      ok: false,
-      message: `ChatGPT OAuth callback is handled on ${OPENAI_OAUTH_LOCAL_REDIRECT_URI}. Please complete login from the popup window.`,
-    };
+    if (OPENAI_OAUTH_USE_LOCAL_CALLBACK) {
+      return {
+        ok: false,
+        message: `ChatGPT OAuth callback is handled on ${OPENAI_OAUTH_LOCAL_REDIRECT_URI}. Please complete login from the popup window.`,
+      };
+    }
+
+    const error = firstQueryValue(queryParams, 'error');
+    const errorDescription = firstQueryValue(queryParams, 'error_description');
+    if (error) {
+      return { ok: false, message: errorDescription || error };
+    }
+
+    const code = firstQueryValue(queryParams, 'code');
+    const state = firstQueryValue(queryParams, 'state');
+    if (!code || !state) {
+      return { ok: false, message: 'Missing code or state in callback' };
+    }
+
+    await finalizeOpenAIOAuthCode(code, state, OPENAI_OAUTH_REDIRECT_URI);
+    return { ok: true, message: 'ChatGPT connected successfully' };
   }
 
   if (providerId === 'anthropic') {
-    return {
-      ok: false,
-      message: 'Claude OAuth uses a code-paste flow. Please return to LLM Council and paste the code there.',
-    };
+    const error = firstQueryValue(queryParams, 'error');
+    const errorDescription = firstQueryValue(queryParams, 'error_description');
+    if (error) {
+      return { ok: false, message: errorDescription || error };
+    }
+
+    const code = firstQueryValue(queryParams, 'code');
+    const state = firstQueryValue(queryParams, 'state');
+    if (!code || !state) {
+      return { ok: false, message: 'Missing code or state in callback' };
+    }
+
+    const pending = pendingAnthropicStates.get(state);
+    pendingAnthropicStates.delete(state);
+    if (!pending) {
+      return { ok: false, message: 'Invalid or expired Anthropic OAuth state' };
+    }
+
+    const tokenResponse = await postAnthropicToken({
+      code,
+      state,
+      grant_type: 'authorization_code',
+      client_id: ANTHROPIC_OAUTH_CLIENT_ID,
+      redirect_uri: ANTHROPIC_OAUTH_REDIRECT_URI,
+      code_verifier: pending.code_verifier,
+    });
+
+    const token = serializeTokenResponse(tokenResponse);
+    setProviderToken('anthropic', token);
+    return { ok: true, message: 'Claude connected successfully' };
   }
 
   return { ok: false, message: `${provider.name} OAuth callback is unsupported` };
@@ -582,18 +694,37 @@ async function completeOAuthCode(providerId, body) {
   cleanupExpiredPending();
   const provider = getProviderOrThrow(providerId);
 
-  if (providerId !== 'anthropic') {
-    return {
-      ok: false,
-      message: `${provider.name} does not use code completion endpoint`,
-    };
-  }
-
   const flowId = body && body.flow_id;
   const codeInput = body && body.code;
 
   if (!flowId || !codeInput) {
     return { ok: false, message: 'Missing flow_id or code' };
+  }
+
+  if (providerId === 'openai') {
+    const parsed = parseOpenAIAuthorizationCode(codeInput);
+    const state = parsed.state || flowId;
+    if (!parsed.code || !state) {
+      return { ok: false, message: 'Authorization code could not be parsed' };
+    }
+
+    const redirectUri = OPENAI_OAUTH_USE_LOCAL_CALLBACK
+      ? OPENAI_OAUTH_LOCAL_REDIRECT_URI
+      : OPENAI_OAUTH_REDIRECT_URI;
+
+    try {
+      await finalizeOpenAIOAuthCode(parsed.code, state, redirectUri);
+      return { ok: true, message: `${provider.name} connected successfully` };
+    } catch (e) {
+      return { ok: false, message: e.message };
+    }
+  }
+
+  if (providerId !== 'anthropic') {
+    return {
+      ok: false,
+      message: `${provider.name} does not use code completion endpoint`,
+    };
   }
 
   const flow = pendingAnthropicFlows.get(flowId);
