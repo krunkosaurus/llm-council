@@ -35,8 +35,42 @@ function getLabelForModel(model, labelToModel) {
   return entry ? entry[0] : null;
 }
 
+function buildAggregateVoteMap(rankings, labelToModel) {
+  if (!rankings || rankings.length === 0 || !labelToModel) {
+    return {};
+  }
+
+  const voteMap = {};
+
+  rankings.forEach((ranking) => {
+    if (!ranking || !Array.isArray(ranking.parsed_ranking)) {
+      return;
+    }
+
+    ranking.parsed_ranking.forEach((label, index) => {
+      const rankedModel = labelToModel[label];
+      if (!rankedModel) {
+        return;
+      }
+
+      if (!voteMap[rankedModel]) {
+        voteMap[rankedModel] = [];
+      }
+
+      voteMap[rankedModel].push({
+        ranker: ranking.model,
+        position: index + 1,
+        isSelfVote: ranking.model === rankedModel,
+      });
+    });
+  });
+
+  return voteMap;
+}
+
 export default function Stage2({ rankings, labelToModel, aggregateRankings, failures = [] }) {
   const [activeTab, setActiveTab] = useState(0);
+  const aggregateVoteMap = buildAggregateVoteMap(rankings, labelToModel);
 
   if ((!rankings || rankings.length === 0) && (!failures || failures.length === 0)) {
     return null;
@@ -118,20 +152,35 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, fail
           <div className="aggregate-list">
             {aggregateRankings.map((agg, index) => (
               <div key={index} className="aggregate-item">
-                <span className="rank-position">#{index + 1}</span>
-                <span className="rank-model">
-                  {(() => {
-                    const label = getLabelForModel(agg.model, labelToModel);
-                    const modelName = getModelShortName(agg.model);
-                    return label ? `${label} -> ${modelName}` : modelName;
-                  })()}
-                </span>
-                <span className="rank-score">
-                  Avg: {agg.average_rank.toFixed(2)}
-                </span>
-                <span className="rank-count">
-                  ({agg.rankings_count} votes)
-                </span>
+                <div className="aggregate-item-main">
+                  <span className="rank-position">#{index + 1}</span>
+                  <span className="rank-model">
+                    {(() => {
+                      const label = getLabelForModel(agg.model, labelToModel);
+                      const modelName = getModelShortName(agg.model);
+                      return label ? `${label} -> ${modelName}` : modelName;
+                    })()}
+                  </span>
+                  <span className="rank-score">
+                    Avg: {agg.average_rank.toFixed(2)}
+                  </span>
+                  <span className="rank-count">
+                    ({agg.rankings_count} votes)
+                  </span>
+                </div>
+                {aggregateVoteMap[agg.model] && aggregateVoteMap[agg.model].length > 0 && (
+                  <div className="aggregate-votes" aria-label={`Votes for ${agg.model}`}>
+                    {aggregateVoteMap[agg.model].map((vote) => (
+                      <span
+                        key={`${agg.model}-${vote.ranker}`}
+                        className={`vote-badge ${vote.isSelfVote ? 'self-vote' : ''}`}
+                        title={`${getModelShortName(vote.ranker)} ranked this #${vote.position}`}
+                      >
+                        {getModelShortName(vote.ranker)} #{vote.position}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

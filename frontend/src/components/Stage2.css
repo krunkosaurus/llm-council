@@ -74,12 +74,19 @@
 
 .aggregate-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 10px;
   background: #ffffff;
   border-radius: 6px;
   border: 1px solid #d0e7ff;
+}
+
+.aggregate-item-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
 }
 
 .rank-position {
@@ -182,6 +189,43 @@
 .rank-count {
   color: #999;
   font-size: 12px;
+}
+
+.aggregate-votes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.vote-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #c8ddf7;
+  background: #eef6ff;
+  color: #215b97;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.vote-badge.self-vote {
+  border-color: #e6c56f;
+  background: #fff7dc;
+  color: #8a5a00;
+}
+
+@media (max-width: 720px) {
+  .aggregate-item-main {
+    flex-wrap: wrap;
+  }
+
+  .rank-model {
+    flex-basis: 100%;
+  }
 }
 
 .stage-failures {
